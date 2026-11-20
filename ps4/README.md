@@ -50,7 +50,8 @@ Irrlicht's SDL device). It is the implementation checklist for the layer.
 ```sh
 ps4/tools/preflight.sh      # says exactly what is still missing
 ps4/build.sh                # configure + ninja
-ps4/pkg.sh                  # stage data, generate the .pkg into out/
+ps4/pkg.sh                  # full package: data + assets, into out/
+STK_PKG_EBOOT_ONLY=1 ps4/pkg.sh  # iteration package; needs /data/stk/data
 ps4/deploy.sh               # build + eboot-only package + upload to /data/pkg
 ```
 
@@ -82,10 +83,12 @@ STK main loop
 
 A full package stages code data and assets into `/app0/data`; STK's compile-time
 `SUPERTUXKART_DATADIR` default is `/app0`, and the PS4 launcher passes no
-arguments. For iteration the port's constructor overrides that at runtime with
-`SUPERTUXKART_DATADIR=/data/stk`, and `STK_PKG_EBOOT_ONLY=1` packages only the
-executable, so the assets are uploaded once to `/data/stk/data` instead of being
-rewritten on every install. See `ps4-kit/docs/ssd-friendly-iteration.md`.
+arguments. This is what `ps4/pkg.sh` builds by default, and it is the package
+published in Releases. For iteration the port's constructor overrides that at
+runtime with `SUPERTUXKART_DATADIR=/data/stk`, and `STK_PKG_EBOOT_ONLY=1`
+packages only the executable, so the assets are uploaded once to
+`/data/stk/data` instead of being rewritten on every install. See
+`ps4-kit/docs/ssd-friendly-iteration.md`.
 
 ## Licensing
 

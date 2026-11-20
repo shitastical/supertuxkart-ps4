@@ -10,16 +10,22 @@ root), the build and packaging scripts, and the runtime notes.
 
 ## Status
 
-Playable on a real PS4: Races, menus, and all of the maps seem to work fine. This is an
-unofficial homebrew port, not an official SuperTuxKart release, and I have not thoroughly tested it for bugs. Expect rough
-edges. Tested on a PS4 slim on 13.52 firmware.
+Playable on a real PS4: races, menus, and all of the maps seem to work fine.
+This is an unofficial homebrew port, not an official SuperTuxKart release, and
+it has not been thoroughly tested for bugs. Expect rough edges. Tested on a PS4
+slim on 13.52 firmware. The current release is **v0.10.0**.
 
 ## Install
 
 A PS4 with homebrew package installation enabled is required.
 
-Prebuilt packages will be attached to Releases after the port is in a more stable state. Until then, build one with the instructions below, install it with
-your package installer, and launch SuperTuxKart from the home screen.
+Download the full package from the
+[**v0.10.0 release**](https://github.com/shitastical/supertuxkart-ps4/releases/tag/v0.10.0):
+
+- `SuperTuxKart-PS4-v0.10.0.pkg` — 1.1 GiB, includes the game data and assets.
+
+Install it with your package installer and launch SuperTuxKart from the home
+screen. A normal install needs no separate data upload.
 
 Saves and configuration are kept under `/data/stk/config-0.10/`.
 
@@ -42,7 +48,6 @@ Cross on a focused text field opens the system keyboard.
 - **Music sometimes slows down and the audio crackles.** Audio playback is not fully
   stable yet. Until this is fixed, it is recommended to turn the music off in
   the game's audio options (set the music volume to 0).
-
 - **Controls are not very good.** The controller bindings aren't the best right now.
   This will be fixed later.
 
@@ -58,14 +63,17 @@ Requirements:
 ```sh
 git clone https://github.com/shitastical/supertuxkart-ps4.git
 cd supertuxkart-ps4
-# place stk-assets at ../stk-assets
+# place stk-assets at ../stk-assets, or set STK_ASSETS=/path/to/stk-assets
 ps4/build.sh
 ps4/pkg.sh
 ```
 
 `ps4/build.sh` writes to `cmake_build-ps4/` (or a space-free fallback under
-`/tmp` when the checkout path contains spaces). `ps4/pkg.sh` writes the
-package to `out/`.
+`/tmp` when the checkout path contains spaces). `ps4/pkg.sh` builds the full
+package (game data and assets) and writes it to `out/`. For fast iteration,
+`STK_PKG_EBOOT_ONLY=1` builds only the executable; after uploading the data to
+`/data/stk` once, use `ps4/deploy.sh` for the rebuild/upload loop. The
+iteration package is not a standalone install.
 
 Runtime notes, the present-path contract and the debugging playbook are in
 [`ps4/PORT-NOTES.md`](ps4/PORT-NOTES.md); the integration dossier is

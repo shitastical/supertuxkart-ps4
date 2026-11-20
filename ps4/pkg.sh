@@ -79,9 +79,11 @@ cp "$ICON" "$STAGE/sce_sys/icon0.png"
 # make-pkg.sh requires TITLE_ID = 4 letters + 5 digits.
 TITLE_ID="STKR00001"
 LABEL="STKPORT"
-mkdir -p "$STK/out"
+# STK_OUT keeps a large build off a full root disk (the package is ~1.2 GB).
+OUT="${STK_OUT:-$STK/out}"
+mkdir -p "$OUT"
 PKG="$(NO_RIGHT_SPRX=1 bash "$KIT/scripts/make-pkg.sh" \
         "$STAGE" "$TITLE_ID" "SuperTuxKart" "$VERSION" "$LABEL" \
-        "$STK/out" | tail -1)"
+        "$OUT" | tail -1)"
 
 echo "$PKG"
