@@ -18,9 +18,9 @@ edges.
 
 A PS4 with homebrew package installation enabled is required.
 
-1. Download the `.pkg` from the Releases page.
-2. Install it with your package installer.
-3. Launch SuperTuxKart from the home screen.
+Prebuilt packages will be attached to Releases after a build has been verified
+on hardware. Until then, build one with the instructions below, install it with
+your package installer, and launch SuperTuxKart from the home screen.
 
 Saves and configuration are kept under `/data/stk/config-0.10/`.
 
