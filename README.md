@@ -10,16 +10,15 @@ root), the build and packaging scripts, and the runtime notes.
 
 ## Status
 
-Playable on retail PS4: the menus render and the tutorial loads. This is an
-unofficial homebrew port, not an official SuperTuxKart release; expect rough
-edges.
+Playable on a real PS4: Races, menus, and all of the maps seem to work fine. This is an
+unofficial homebrew port, not an official SuperTuxKart release, and I have not thoroughly tested it for bugs. Expect rough
+edges. Tested on a PS4 slim on 13.52 firmware.
 
 ## Install
 
 A PS4 with homebrew package installation enabled is required.
 
-Prebuilt packages will be attached to Releases after a build has been verified
-on hardware. Until then, build one with the instructions below, install it with
+Prebuilt packages will be attached to Releases after the port is in a more stable state. Until then, build one with the instructions below, install it with
 your package installer, and launch SuperTuxKart from the home screen.
 
 Saves and configuration are kept under `/data/stk/config-0.10/`.
@@ -40,9 +39,12 @@ Cross on a focused text field opens the system keyboard.
 
 ## Known issues
 
-- **Music sometimes slows down or crackles.** Audio playback is not fully
+- **Music sometimes slows down and the audio crackles.** Audio playback is not fully
   stable yet. Until this is fixed, it is recommended to turn the music off in
   the game's audio options (set the music volume to 0).
+
+- **Controls are not very good.** The controller bindings aren't the best right now.
+  This will be fixed later.
 
 ## Build from source
 
