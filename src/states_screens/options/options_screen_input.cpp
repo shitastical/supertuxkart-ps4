@@ -32,6 +32,10 @@
 
 #include <IrrlichtDevice.h>
 
+#ifdef __PS4__
+extern "C" int ps4_input_registered_pads(void);
+#endif
+
 using namespace GUIEngine;
 
 // -----------------------------------------------------------------------------
@@ -103,6 +107,10 @@ void OptionsScreenInput::buildDeviceList()
 
     const int gpad_config_count = device_manager->getGamePadConfigAmount();
     m_gamepad_count = input_manager->getGamepadCount();
+#ifdef __PS4__
+    // ScePad devices are not in InputManager's SDL-controller map.
+    m_gamepad_count += ps4_input_registered_pads();
+#endif
 
     for (int i = 0; i < gpad_config_count; i++)
     {
@@ -347,6 +355,9 @@ void OptionsScreenInput::onUpdate(float dt)
     // This allow the list to be scrolled (keyboard config can only be add or
     // remove in new screen
     size_t gamepad_count = input_manager->getGamepadCount();
+#ifdef __PS4__
+    gamepad_count += ps4_input_registered_pads();
+#endif
     if (gamepad_count != m_gamepad_count)
         rebuildDeviceList();
 

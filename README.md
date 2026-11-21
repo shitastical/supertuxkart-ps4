@@ -127,15 +127,19 @@ The current layout is Mario Kart 8 Deluxe's:
 | Square | - | Look back |
 | Options | Back | Pause |
 
-Steering is digital for now. Cross on a focused text field opens the PS4 system
-keyboard. The keyboard starts with the field's current text, including password
-fields, and the result replaces the old contents so any field can be edited.
-The face-button and shoulder prompts use the DualShock 4 glyphs in
-`data/ttf/DS4Prompts.ttf`.
+The left stick steers with analog precision; the D-pad remains a full-lock
+digital alternative. Each connected PS4 controller appears as its own gamepad,
+so split-screen can assign one controller per player. Cross on a focused text
+field opens the PS4 system keyboard. The keyboard starts with the field's
+current text, including password fields, and the result replaces the old
+contents so any field can be edited. The face-button and shoulder prompts use
+the DualShock 4 glyphs in `data/ttf/DS4Prompts.ttf`.
 
 ## Known issues
 
-- Online multiplayer and split-screen have not been tested yet.
+- Split-screen controller detection is implemented but has not been confirmed
+  on retail hardware yet. If a second player cannot join, please report it.
+- Online multiplayer has not been tested yet.
 - Do not change the controls or graphics settings. Those options have not been
   tested on PS4, and changing them may cause issues.
 

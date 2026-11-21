@@ -970,8 +970,13 @@ void KartSelectionScreen::addMultiplayerMessage()
     {
         m_multiplayer_message = new BubbleWidget();
         m_multiplayer_message->m_properties[PROP_TEXT_ALIGN] = "center";
+#ifdef __PS4__
+        m_multiplayer_message->setText(_("Press %s to join the game",
+                                         core::stringw(L"\xE000")));
+#else
         m_multiplayer_message->setText(_("Everyone:\n"
             "Press the 'Fire' or 'Select' button to join the game"));
+#endif
         m_multiplayer_message->m_x = message_x;
         m_multiplayer_message->m_y = (int) (fullarea->m_y + fullarea->m_h * 0.3f);
         m_multiplayer_message->m_w = (int) (splitWidth * 0.6f);

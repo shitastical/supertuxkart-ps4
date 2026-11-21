@@ -22,7 +22,7 @@ keeps the port-specific details.
 | SDL2 PS4 layer | implemented for STK's Vulkan WSI + input; cbfd SDL2 supplies window/events/audio |
 | shaderc / freetype / harfbuzz / png / jpeg / curl / crypto | built and installed in the seed sysroot |
 | Audio (SceAudioOut via MojoAL to SDL) | playable; 44.1 kHz mix, 1024-frame device buffer, deeper music queue |
-| Input (ScePad to SDL gamecontroller) | implemented (`ps4_input.cpp`); pad drives the menus, tutorial and races |
+| Input (ScePad to STK gamepads) | implemented (`ps4_input.cpp`); each pad is a separate device for menus, tutorial, races and split-screen |
 | Text input | PS4 system IME via Cross on a focused field; current text is editable |
 | Runtime | playable on retail hardware: menus, tutorial and races load |
 | `.pkg` | full standalone package builds and installs |
@@ -100,11 +100,13 @@ reinstalls. Delete `/data/stk` manually for a completely clean removal.
 | Options | Back | Pause |
 
 The layout is Mario Kart 8 Deluxe's: bottom face button accelerates, right face
-button brakes, shoulders drift and fire. Steering is digital; there is no
-analog steering curve yet.
+button brakes, shoulders drift and fire. The left stick gives analog steering;
+the D-pad gives full-lock digital steering. Each controller is registered as a
+separate STK gamepad, so a second controller can join split-screen.
 
-`KeyboardConfig::getBindingAsString` has a PS4 branch that returns the actual
-DualShock 4 glyphs instead of the key names the pad is translated into. The
+`KeyboardConfig::getBindingAsString` and `GamepadConfig::getBindingAsString`
+have PS4 branches that return the actual DualShock 4 glyphs instead of key or
+button names. The
 glyphs come from `data/ttf/DS4Prompts.ttf`, a small icon font whose characters
 live in the Private Use Area (U+E000-U+E009) and which is part of the
 `normal-ttf` fallback chain in `stk_config.xml`. The glyphs are outlines, so
@@ -121,7 +123,9 @@ visible.
 
 ## Known issues
 
-- Online multiplayer and split-screen have not been tested yet.
+- Split-screen controller detection is implemented but has not been confirmed
+  on retail hardware yet. If a second player cannot join, please report it.
+- Online multiplayer has not been tested yet.
 - Do not change the controls or graphics settings. Those options have not been
   tested on PS4, and changing them may cause issues.
 

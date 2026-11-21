@@ -241,9 +241,18 @@ SDLController* InputManager::getSDLController(unsigned i) {
 }
 #endif
 
+#ifdef __PS4__
+extern "C" void ps4_input_update(InputManager* manager);
+#endif
+
 // -----------------------------------------------------------------------------
 void InputManager::update(float dt)
 {
+#ifdef __PS4__
+    // Register newly connected PS4 pads and deliver their queued events on the
+    // main thread.  The pad thread must not touch the GUI or game world.
+    ps4_input_update(this);
+#endif
 #ifdef ENABLE_WIIUSE
     if (wiimote_manager)
         wiimote_manager->update();

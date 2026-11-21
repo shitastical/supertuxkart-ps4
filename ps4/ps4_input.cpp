@@ -1,10 +1,11 @@
-// SuperTuxKart PS4: DualShock 4 as SDL keyboard events.
+// SuperTuxKart PS4: DualShock 4 controllers as STK gamepad devices.
 //
-// SDL2 on PS4 is built with the null video/event driver.  Irrlicht's SDL
-// device still polls SDL_PollEvent(), so a small thread polls ScePad and
-// pushes the key events STK already understands.  This keeps the game's
-// existing keyboard bindings and makes the menus and driving usable without
-// a second input abstraction.
+// SDL2 on PS4 is built with the null video/event driver, so there is no SDL
+// controller hotplug.  A small thread polls ScePad for every controller slot
+// and queues the same events the SDL controller backend would send.  STK sees
+// real gamepads instead of one keyboard, so a second controller is a distinct
+// input device and can join a split-screen race.  The stick is analog in a
+// race; in menus it is treated as a full direction so navigation stays quick.
 //
 // Racing layout (Mario Kart 8 Deluxe style):
 //   Cross accelerate, Circle brake/reverse, left stick or D-pad steer
@@ -14,15 +15,25 @@
 
 #include <SDL.h>
 
+#include "input/device_manager.hpp"
+#include "input/gamepad_config.hpp"
+#include "input/gamepad_device.hpp"
 #include "input/input_manager.hpp"
 #include "ps4_kit_diag.h"
 
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <deque>
+#include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 extern "C" bool ps4_ime_active(void);
 extern "C" bool ps4_ime_text_field_active(void);
@@ -30,41 +41,275 @@ extern "C" bool ps4_ime_request_open(void);
 
 namespace
 {
-constexpr uint8_t kStickDeadzone = 45;
+constexpr int kPadCount = 4;
+constexpr int kIrrBase = 0x4000;
+constexpr int kButtonCount = 16;
+constexpr int kStickDeadzone = 30;
 
-std::atomic<bool> started{false};
-int32_t pad_handle = -1;
-
-struct KeyState
+enum PadButton
 {
-    SDL_Keycode key;
-    bool down;
+    PS4_CROSS = 0,
+    PS4_CIRCLE,
+    PS4_SQUARE,
+    PS4_TRIANGLE,
+    PS4_L1,
+    PS4_L2,
+    PS4_R2,
+    PS4_MENU_BACK,
+    PS4_OPTIONS,
+    PS4_BUTTON_COUNT
 };
 
-void push_key(SDL_Keycode key, bool down)
+struct PadEvent
 {
-    SDL_Event event;
-    SDL_zero(event);
-    event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
-    event.key.timestamp = SDL_GetTicks();
-    event.key.windowID = 0;
-    event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
-    event.key.repeat = 0;
-    event.key.keysym.sym = key;
-    event.key.keysym.scancode = SDL_GetScancodeFromKey(key);
-    event.key.keysym.mod = KMOD_NONE;
-    SDL_PushEvent(&event);
-}
+    Input::InputType type;
+    int device;
+    int button;
+    Input::AxisDirection direction;
+    int value;
+};
 
-bool open_pad()
+struct PadState
 {
-    int32_t user = -1;
-    if (sceUserServiceGetInitialUser(&user) < 0)
+    std::atomic<int32_t> handle{-1};
+    std::atomic<bool> connected{false};
+    bool registered = false;
+
+    // Only the input thread touches these.
+    bool have_previous = false;
+    bool previous_buttons[PS4_BUTTON_COUNT] = {};
+    int previous_x = 0;
+    int previous_y = 0;
+    bool cross_suppressed = false;
+    uint32_t next_open_ms = 0;
+};
+
+PadState pads[kPadCount];
+std::mutex queue_mutex;
+std::deque<PadEvent> queue;
+std::atomic<bool> started{false};
+
+int pad_device_id(int index)
+{
+    return kIrrBase + index;
+}   // pad_device_id
+
+void queue_event(Input::InputType type, int device, int button,
+                 Input::AxisDirection direction, int value)
+{
+    std::lock_guard<std::mutex> lock(queue_mutex);
+    // A stuck main thread must not let the pad thread grow the queue forever.
+    if (queue.size() >= 1024)
+        queue.pop_front();
+    queue.push_back({type, device, button, direction, value});
+}   // queue_event
+
+void queue_button(int index, int button, bool down)
+{
+    queue_event(Input::IT_STICKBUTTON, pad_device_id(index), button,
+                Input::AD_NEUTRAL, down ? Input::MAX_VALUE : 0);
+}   // queue_button
+
+void queue_axis(int index, int axis, int value)
+{
+    queue_event(Input::IT_STICKMOTION, pad_device_id(index), axis,
+                Input::AD_NEUTRAL, value);
+}   // queue_axis
+
+void release_pad(int index)
+{
+    PadState& pad = pads[index];
+    if (!pad.have_previous)
+    {
+        pad.cross_suppressed = false;
+        return;
+    }
+
+    for (int button = 0; button < PS4_BUTTON_COUNT; ++button)
+    {
+        if (pad.previous_buttons[button])
+            queue_button(index, button, false);
+        pad.previous_buttons[button] = false;
+    }
+    if (pad.previous_x != 0)
+        queue_axis(index, 0, 0);
+    if (pad.previous_y != 0)
+        queue_axis(index, 1, 0);
+
+    pad.previous_x = 0;
+    pad.previous_y = 0;
+    pad.have_previous = false;
+    pad.cross_suppressed = false;
+}   // release_pad
+
+void add_login_user(std::vector<int32_t>& users, int32_t user)
+{
+    if (user < 0 || user == ORBIS_USER_SERVICE_USER_ID_SYSTEM)
+        return;
+    if (std::find(users.begin(), users.end(), user) == users.end())
+        users.push_back(user);
+}   // add_login_user
+
+std::vector<int32_t> login_users()
+{
+    std::vector<int32_t> users;
+
+    int32_t initial_user = -1;
+    if (sceUserServiceGetInitialUser(&initial_user) >= 0)
+        add_login_user(users, initial_user);
+
+    // A second controller can be signed in as another user, so try every
+    // logged-in user for each pad slot, not just the initial one.
+    OrbisUserServiceLoginUserIdList user_list = {};
+    if (sceUserServiceGetLoginUserIdList(&user_list) >= 0)
+    {
+        for (int i = 0; i < ORBIS_USER_SERVICE_MAX_LOGIN_USERS; ++i)
+            add_login_user(users, user_list.userId[i]);
+    }
+
+    if (users.empty())
+    {
+        int32_t foreground_user = -1;
+        if (sceUserServiceGetForegroundUser(&foreground_user) >= 0)
+            add_login_user(users, foreground_user);
+    }
+
+    return users;
+}   // login_users
+
+bool open_pad(int index, uint32_t now)
+{
+    PadState& pad = pads[index];
+    if (pad.handle.load() >= 0)
+        return true;
+    if (now < pad.next_open_ms)
         return false;
-    pad_handle = scePadOpen(user, 0, 0, nullptr);
-    ps4_boot_tracef("port: ScePad open -> handle %d (user %d)", pad_handle, user);
-    return pad_handle >= 0;
-}
+    pad.next_open_ms = now + 1000;
+
+    const std::vector<int32_t> users = login_users();
+    for (int32_t user : users)
+    {
+        const int32_t handle = scePadOpen(user, 0, index, nullptr);
+        if (handle < 0)
+            continue;
+
+        pad.handle.store(handle);
+        pad.connected.store(true);
+        pad.have_previous = false;
+        pad.cross_suppressed = false;
+        ps4_boot_tracef("port: ScePad %d open -> handle %d (user %d)",
+                        index, handle, user);
+        return true;
+    }
+
+    static bool reported[kPadCount] = {};
+    if (!reported[index])
+    {
+        ps4_boot_tracef("port: ScePad %d not available yet", index);
+        reported[index] = true;
+    }
+    return false;
+}   // open_pad
+
+void disconnect_pad(int index)
+{
+    PadState& pad = pads[index];
+    release_pad(index);
+    const int32_t handle = pad.handle.exchange(-1);
+    pad.connected.store(false);
+    pad.next_open_ms = SDL_GetTicks() + 1000;
+    if (handle >= 0)
+        scePadClose(handle);
+}   // disconnect_pad
+
+void configure_gamepad(GamepadConfig* config, const std::string& name)
+{
+    config->setName(name);
+    config->setConfigName(irr::core::stringw(name.c_str()));
+    config->setEnabled(true);
+    config->setNumberOfAxis(2);
+    config->setNumberOfButtons(kButtonCount);
+    config->setForceFeedback(false);
+
+    // Start from the stock bindings, then replace every action.  These pads
+    // are the PS4 port's own devices; there is no SDL mapping string.
+    config->setDefaultBinds();
+    config->setBinding(PA_ACCEL,       Input::IT_STICKBUTTON, PS4_CROSS);
+    config->setBinding(PA_BRAKE,       Input::IT_STICKBUTTON, PS4_CIRCLE);
+    config->setBinding(PA_FIRE,        Input::IT_STICKBUTTON, PS4_R2);
+    config->setBinding(PA_DRIFT,       Input::IT_STICKBUTTON, PS4_L2);
+    config->setBinding(PA_NITRO,       Input::IT_STICKBUTTON, PS4_L1);
+    config->setBinding(PA_LOOK_BACK,   Input::IT_STICKBUTTON, PS4_SQUARE);
+    config->setBinding(PA_RESCUE,      Input::IT_STICKBUTTON, PS4_TRIANGLE);
+    config->setBinding(PA_PAUSE_RACE,  Input::IT_STICKBUTTON, PS4_OPTIONS);
+
+    config->setBinding(PA_STEER_LEFT,  Input::IT_STICKMOTION, 0,
+                       Input::AD_NEGATIVE);
+    config->setBinding(PA_STEER_RIGHT, Input::IT_STICKMOTION, 0,
+                       Input::AD_POSITIVE);
+    config->setBinding(PA_MENU_UP,     Input::IT_STICKMOTION, 1,
+                       Input::AD_NEGATIVE);
+    config->setBinding(PA_MENU_DOWN,   Input::IT_STICKMOTION, 1,
+                       Input::AD_POSITIVE);
+    config->setBinding(PA_MENU_LEFT,   Input::IT_STICKMOTION, 0,
+                       Input::AD_NEGATIVE);
+    config->setBinding(PA_MENU_RIGHT,  Input::IT_STICKMOTION, 0,
+                       Input::AD_POSITIVE);
+    config->setBinding(PA_MENU_SELECT, Input::IT_STICKBUTTON, PS4_CROSS);
+    // Circle and Options both back out of a menu; the input thread folds them
+    // into one logical button so Circle can still be the in-race brake.
+    config->setBinding(PA_MENU_CANCEL, Input::IT_STICKBUTTON, PS4_MENU_BACK);
+}   // configure_gamepad
+
+void register_pads(InputManager* manager)
+{
+    DeviceManager* device_manager = manager->getDeviceManager();
+    for (int index = 0; index < kPadCount; ++index)
+    {
+        PadState& pad = pads[index];
+        if (!pad.connected.load() || pad.registered)
+            continue;
+
+        const std::string name =
+            "PS4 Controller " + std::to_string(index + 1);
+        GamepadConfig* config = nullptr;
+        device_manager->getConfigForGamepad(pad_device_id(index), name,
+                                            &config);
+        configure_gamepad(config, name);
+        config->setPlugged();
+
+        GamePadDevice* device = new GamePadDevice(
+            pad_device_id(index), name, 2, kButtonCount, config);
+        device->setConnected(true);
+        device->setPlayer(nullptr);
+        device_manager->addGamepad(device);
+        pad.registered = true;
+        ps4_boot_tracef("port: registered %s (device id %d)", name.c_str(),
+                        pad_device_id(index));
+    }
+}   // register_pads
+
+int stick_axis(uint8_t raw, bool negative_button, bool positive_button,
+               bool in_game)
+{
+    if (negative_button)
+        return -Input::MAX_VALUE;
+    if (positive_button)
+        return Input::MAX_VALUE;
+
+    int value = (static_cast<int>(raw) - 128) * 256;
+    if (std::abs(value) < kStickDeadzone * 256)
+        return 0;
+
+    if (!in_game)
+        return value < 0 ? -Input::MAX_VALUE : Input::MAX_VALUE;
+
+    if (value > 32767)
+        value = 32767;
+    else if (value < -32767)
+        value = -32767;
+    return value;
+}   // stick_axis
 
 void input_thread()
 {
@@ -72,30 +317,9 @@ void input_thread()
     scePadInit();
     ps4_boot_trace("port: pad thread started (SceUserService/ScePad initialised)");
 
-    // Cross is suppressed while it opens the IME: the IME itself pushes the
-    // committed text and the Return. Set when the pad was paused for a dialog,
-    // so presses made inside it do not leak into the menu when it closes.
-    bool cross_suppressed = false;
-    bool resync = false;
+    bool ime_paused = false;
     bool mode_known = false;
     bool last_in_game = false;
-
-    // One entry per SDL key this thread can emit. UP and DOWN are the
-    // throttle and brake in a race and menu navigation outside one, so each
-    // key is driven by exactly one control per mode.
-    KeyState previous[] = {
-        { SDLK_UP, false },        // 0: Cross accelerate / menu up
-        { SDLK_DOWN, false },      // 1: Circle brake / menu down
-        { SDLK_LEFT, false },      // 2: steer left
-        { SDLK_RIGHT, false },     // 3: steer right
-        { SDLK_RETURN, false },    // 4: Cross, menu select
-        { SDLK_ESCAPE, false },    // 5: Options pause / Circle menu back
-        { SDLK_SPACE, false },     // 6: R2, fire item (STK's PA_FIRE)
-        { SDLK_v, false },         // 7: L2, drift (STK's PA_DRIFT)
-        { SDLK_b, false },         // 8: Square, look back
-        { SDLK_n, false },         // 9: L1, nitro
-        { SDLK_BACKSPACE, false }, // 10: Triangle, rescue
-    };
 
     while (true)
     {
@@ -103,118 +327,148 @@ void input_thread()
         // presses to STK would also drive the menu behind the keyboard.
         if (ps4_ime_active())
         {
-            resync = true;
+            if (!ime_paused)
+            {
+                for (int index = 0; index < kPadCount; ++index)
+                    release_pad(index);
+                ime_paused = true;
+            }
             SDL_Delay(16);
             continue;
         }
 
-        if (pad_handle < 0 && !open_pad())
+        if (ime_paused)
         {
-            SDL_Delay(1000);
+            ime_paused = false;
+            mode_known = false;
+        }
+
+        InputManager* manager = input_manager;
+        if (manager == nullptr)
+        {
+            SDL_Delay(16);
             continue;
         }
 
-        OrbisPadData data = {};
-        if (scePadReadState(pad_handle, &data) != 0 || !data.connected)
+        const bool in_game = manager->getMode() == InputManager::INGAME;
+        if (!mode_known || in_game != last_in_game)
         {
-            SDL_Delay(100);
-            continue;
-        }
-
-        const bool in_game = input_manager != nullptr &&
-                             input_manager->getMode() == InputManager::INGAME;
-        const bool cross = (data.buttons & ORBIS_PAD_BUTTON_CROSS) != 0;
-        const bool circle = (data.buttons & ORBIS_PAD_BUTTON_CIRCLE) != 0;
-        const bool square = (data.buttons & ORBIS_PAD_BUTTON_SQUARE) != 0;
-        const bool triangle = (data.buttons & ORBIS_PAD_BUTTON_TRIANGLE) != 0;
-        const bool options = (data.buttons & ORBIS_PAD_BUTTON_OPTIONS) != 0;
-        const bool l1 = (data.buttons & ORBIS_PAD_BUTTON_L1) != 0;
-        const bool l2 = (data.buttons & ORBIS_PAD_BUTTON_L2) != 0;
-        const bool r2 = (data.buttons & ORBIS_PAD_BUTTON_R2) != 0;
-
-        bool held[sizeof(previous) / sizeof(previous[0])] = {};
-        // Mario Kart 8 Deluxe layout: Cross is the throttle, Circle the brake,
-        // the left stick steers, L2 drifts and R2 uses the item. Pushing the
-        // stick forward no longer accelerates; in a menu the same stick and
-        // D-pad scroll, so a trigger squeeze never moves a list.
-        held[0] = (in_game && cross) ||
-                  (!in_game && ((data.buttons & ORBIS_PAD_BUTTON_UP) != 0 ||
-                   data.leftStick.y < 128 - kStickDeadzone));
-        held[1] = (in_game && circle) ||
-                  (!in_game && ((data.buttons & ORBIS_PAD_BUTTON_DOWN) != 0 ||
-                   data.leftStick.y > 128 + kStickDeadzone));
-        held[2] = (data.buttons & ORBIS_PAD_BUTTON_LEFT) != 0 ||
-                  data.leftStick.x < 128 - kStickDeadzone;
-        held[3] = (data.buttons & ORBIS_PAD_BUTTON_RIGHT) != 0 ||
-                  data.leftStick.x > 128 + kStickDeadzone;
-
-        // In a race: R2 fires, L2 drifts, L1 nitros, Square looks back,
-        // Triangle rescues, Options pauses. In the menus: Cross selects and
-        // Circle/Options back out.
-        held[4] = !in_game && cross;
-        held[5] = options || (!in_game && circle);
-        held[6] = in_game && r2;
-        held[7] = in_game && l2;
-        held[8] = in_game && square;
-        held[9] = in_game && l1;
-        held[10] = in_game && triangle;
-
-        // Adopt the pad state after a dialog, and whenever the game switches
-        // between menu and race, without emitting the edges that happened
-        // while the other side owned input. Selecting a kart with Cross does
-        // not fire an item on the first frame of the race, and a trigger held
-        // through the transition starts working without a stray menu edge.
-        if (resync || !mode_known || in_game != last_in_game)
-        {
-            for (unsigned int i = 0; i < sizeof(previous) / sizeof(previous[0]); ++i)
-                previous[i].down = held[i];
-            cross_suppressed = held[4];
-            resync = false;
+            // Selecting a kart with Cross must not fire an item or accelerate
+            // on the first race frame.  Adopt the current state without edges.
+            for (int index = 0; index < kPadCount; ++index)
+            {
+                pads[index].have_previous = false;
+                pads[index].cross_suppressed = false;
+            }
             mode_known = true;
             last_in_game = in_game;
-            SDL_Delay(16);
-            continue;
         }
 
-        for (unsigned int i = 0; i < sizeof(previous) / sizeof(previous[0]); ++i)
+        const uint32_t now = SDL_GetTicks();
+        for (int index = 0; index < kPadCount; ++index)
         {
-            if (held[i] == previous[i].down)
+            PadState& pad = pads[index];
+            if (pad.handle.load() < 0 && !open_pad(index, now))
                 continue;
-            previous[i].down = held[i];
 
-            // Cross is Return only in a menu. In a race it is UP (index 0),
-            // so it never opens the IME or a dialog.
-            if (i == 4)
+            OrbisPadData data = {};
+            const int32_t handle = pad.handle.load();
+            if (handle < 0 || scePadReadState(handle, &data) != 0 ||
+                !data.connected)
             {
-                if (held[i])
-                {
-                    if (ps4_ime_text_field_active() && ps4_ime_request_open())
-                    {
-                        cross_suppressed = true;
-                        ps4_boot_trace("port: Cross on a focused text field; IME requested");
-                        continue;
-                    }
-                    cross_suppressed = false;
-                    push_key(SDLK_RETURN, true);
-                }
-                else
-                {
-                    if (cross_suppressed)
-                    {
-                        cross_suppressed = false;
-                        continue;
-                    }
-                    push_key(SDLK_RETURN, false);
-                }
+                disconnect_pad(index);
                 continue;
             }
 
-            push_key(previous[i].key, held[i]);
+            const bool cross = (data.buttons & ORBIS_PAD_BUTTON_CROSS) != 0;
+            const bool circle = (data.buttons & ORBIS_PAD_BUTTON_CIRCLE) != 0;
+            const bool square = (data.buttons & ORBIS_PAD_BUTTON_SQUARE) != 0;
+            const bool triangle =
+                (data.buttons & ORBIS_PAD_BUTTON_TRIANGLE) != 0;
+            const bool l1 = (data.buttons & ORBIS_PAD_BUTTON_L1) != 0;
+            const bool l2 = (data.buttons & ORBIS_PAD_BUTTON_L2) != 0;
+            const bool r2 = (data.buttons & ORBIS_PAD_BUTTON_R2) != 0;
+            const bool options =
+                (data.buttons & ORBIS_PAD_BUTTON_OPTIONS) != 0;
+
+            bool held[PS4_BUTTON_COUNT] = {};
+            held[PS4_CROSS] = cross;
+            held[PS4_CIRCLE] = circle;
+            held[PS4_SQUARE] = square;
+            held[PS4_TRIANGLE] = triangle;
+            held[PS4_L1] = l1;
+            held[PS4_L2] = l2;
+            held[PS4_R2] = r2;
+            held[PS4_OPTIONS] = options;
+            held[PS4_MENU_BACK] = !in_game && (circle || options);
+
+            const bool dpad_left =
+                (data.buttons & ORBIS_PAD_BUTTON_LEFT) != 0;
+            const bool dpad_right =
+                (data.buttons & ORBIS_PAD_BUTTON_RIGHT) != 0;
+            const bool dpad_up = (data.buttons & ORBIS_PAD_BUTTON_UP) != 0;
+            const bool dpad_down =
+                (data.buttons & ORBIS_PAD_BUTTON_DOWN) != 0;
+            int x = stick_axis(data.leftStick.x, dpad_left, dpad_right,
+                               in_game);
+            int y = stick_axis(data.leftStick.y, dpad_up, dpad_down,
+                               in_game);
+
+            if (!pad.have_previous)
+            {
+                for (int button = 0; button < PS4_BUTTON_COUNT; ++button)
+                    pad.previous_buttons[button] = held[button];
+                pad.previous_x = x;
+                pad.previous_y = y;
+                pad.have_previous = true;
+                continue;
+            }
+
+            // Cross on a focused text field opens the PS4 keyboard instead of
+            // selecting the menu item behind it.  Only player 1 may type.
+            if (index == 0 && cross && !pad.previous_buttons[PS4_CROSS] &&
+                !in_game && ps4_ime_text_field_active() &&
+                ps4_ime_request_open())
+            {
+                pad.cross_suppressed = true;
+                ps4_boot_trace("port: Cross on a focused text field; IME requested");
+            }
+
+            if (index == 0 && pad.cross_suppressed)
+            {
+                if (!cross)
+                    pad.cross_suppressed = false;
+                pad.previous_buttons[PS4_CROSS] = cross;
+            }
+            else if (cross != pad.previous_buttons[PS4_CROSS])
+            {
+                pad.previous_buttons[PS4_CROSS] = cross;
+                queue_button(index, PS4_CROSS, cross);
+            }
+
+            for (int button = 1; button < PS4_BUTTON_COUNT; ++button)
+            {
+                if (held[button] == pad.previous_buttons[button])
+                    continue;
+                pad.previous_buttons[button] = held[button];
+                queue_button(index, button, held[button]);
+            }
+
+            if (x != pad.previous_x)
+            {
+                pad.previous_x = x;
+                queue_axis(index, 0, x);
+            }
+            if (y != pad.previous_y)
+            {
+                pad.previous_y = y;
+                queue_axis(index, 1, y);
+            }
         }
 
         SDL_Delay(16);
     }
-}
+}   // input_thread
 } // namespace
 
 extern "C" void ps4_input_start(void)
@@ -223,4 +477,42 @@ extern "C" void ps4_input_start(void)
         return;
     ps4_boot_trace("port: starting the input thread");
     std::thread(input_thread).detach();
+}
+
+// Called from InputManager::update() on the main thread.  Registers newly
+// connected pads and drains the events produced by the polling thread.
+extern "C" void ps4_input_update(InputManager* manager)
+{
+    if (manager == nullptr)
+        return;
+
+    register_pads(manager);
+
+    std::deque<PadEvent> events;
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        events.swap(queue);
+    }
+
+    for (const PadEvent& event : events)
+    {
+        if (input_manager != manager)
+            break;
+        manager->dispatchInput(event.type, event.device, event.button,
+                               event.direction, event.value);
+    }
+}
+
+// Main-thread count used by the controls screen.  It counts registered
+// devices, not raw pad handles, so the list rebuilds when the first update
+// finishes registering a newly connected controller.
+extern "C" int ps4_input_registered_pads(void)
+{
+    int count = 0;
+    for (int index = 0; index < kPadCount; ++index)
+    {
+        if (pads[index].registered)
+            ++count;
+    }
+    return count;
 }

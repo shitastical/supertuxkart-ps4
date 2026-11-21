@@ -146,6 +146,35 @@ void GamepadConfig::setDefaultBinds ()
 //------------------------------------------------------------------------------
 core::stringw GamepadConfig::getBindingAsString(const PlayerAction action) const
 {
+#ifdef __PS4__
+    if (action >= 0 && action < PA_COUNT &&
+        m_bindings[action].getType() != Input::IT_NONE)
+    {
+        // PS4 pads are ScePad devices, not SDL controllers, so m_sdl_mapping
+        // is empty.  Return the same glyphs as the PS4 keyboard config to
+        // keep prompts controller-shaped when a gamepad is the latest device.
+        switch (action)
+        {
+        case PA_ACCEL:       return L"\xE000";  // Cross
+        case PA_BRAKE:       return L"\xE001";  // Circle
+        case PA_STEER_LEFT:
+        case PA_STEER_RIGHT: return L"\xE009";  // left stick
+        case PA_FIRE:        return L"\xE007";  // R2
+        case PA_LOOK_BACK:   return L"\xE002";  // Square
+        case PA_DRIFT:       return L"\xE005";  // L2
+        case PA_NITRO:       return L"\xE004";  // L1
+        case PA_RESCUE:      return L"\xE003";  // Triangle
+        case PA_PAUSE_RACE:  return L"\xE008";  // Options
+        case PA_MENU_UP:     return L"d-pad up";
+        case PA_MENU_DOWN:   return L"d-pad down";
+        case PA_MENU_LEFT:   return L"d-pad left";
+        case PA_MENU_RIGHT:  return L"d-pad right";
+        case PA_MENU_SELECT: return L"\xE000";  // Cross
+        case PA_MENU_CANCEL: return L"\xE001";  // Circle
+        default:             break;
+        }
+    }
+#endif
 #ifndef SERVER_ONLY
     std::map<unsigned, core::stringw> readable =
     {{
