@@ -14,7 +14,8 @@ target_sources(supertuxkart PRIVATE
     ${PROJECT_SOURCE_DIR}/ps4/ps4_input.cpp
     ${PROJECT_SOURCE_DIR}/ps4/ps4_ime.cpp
     ${PROJECT_SOURCE_DIR}/ps4/ps4_threads.cpp
-    ${PROJECT_SOURCE_DIR}/ps4/ps4_trace.cpp)
+    ${PROJECT_SOURCE_DIR}/ps4/ps4_trace.cpp
+    ${PROJECT_SOURCE_DIR}/ps4/ps4_mods.cpp)
 # Milestones at STK's main, SDL's init/window/first poll, and the watchdog stack dump that names
 # where a black screen is stuck (hang.log).
 foreach(fn main SDL_Init SDL_InitSubSystem SDL_TimerInit SDL_VideoInit SDL_CreateWindow SDL_PollEvent)

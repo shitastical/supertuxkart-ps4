@@ -293,6 +293,9 @@ extern "C" {
 #include "utils/string_utils.hpp"
 #include "utils/translation.hpp"
 #include "io/rich_presence.hpp"
+#ifdef __PS4__
+#include "../ps4/ps4_mods.hpp"
+#endif
 
 #include <IrrlichtDevice.h>
 
@@ -2026,6 +2029,11 @@ void initRest()
         // textures
         if (CVS->isGLSL())
             SP::loadShaders();
+#ifdef __PS4__
+        // Import karts/tracks dropped in /data/stk/mods or on a USB drive
+        // before the add-ons manager scans the installed add-ons.
+        ps4_install_mods();
+#endif
         addons_manager = new AddonsManager();
     }
 #endif

@@ -122,6 +122,9 @@ private:
 public:
          /** Initialises the object from an XML node. */
          Addon(const XMLNode &xml);
+         /** Initialises an add-on installed outside the online catalogue. */
+         Addon(const std::string &type, const core::stringw &name,
+               const std::string &dir_name, StkTime::TimeType date = 0);
 
     void deleteInvalidIconFile();
     // ------------------------------------------------------------------------
@@ -164,8 +167,11 @@ public:
     const core::stringw& getDescription() const { return m_description; }
     // ------------------------------------------------------------------------
     /** Returns the date (in seconds since epoch) when the addon was
-     *  uploaded. */
+     *  uploaded, or when a local add-on was installed. */
     StkTime::TimeType getDate() const { return m_date; }
+    // ------------------------------------------------------------------------
+    /** Sets the date used for a locally installed add-on. */
+    void setDate(StkTime::TimeType date) { m_date = date; }
     // ------------------------------------------------------------------------
     /** Returns a user readable date as a string. */
     std::string getDateAsString() const;

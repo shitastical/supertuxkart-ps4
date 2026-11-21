@@ -6,10 +6,15 @@ evidence that identified each one, and the rules that keep them from coming
 back. It is written for whoever touches this port (or the next one on
 ps4-kit) next.
 
-Status as of 2026-11-20: **playable on retail hardware** — the menus render and
-the tutorial loads. The close path below is the kit's shutdown path; record a
-final close test on the next run. Installing and launching are manual XMB
-steps; nothing here is a hardware claim beyond what was actually run.
+Status as of 2026-11-20: **playable on retail hardware** — menus, tutorial,
+races and two-player split-screen are verified. The v0.11.0 release has passed
+an online Among Us install-and-race and a local Mario install-and-race. The
+local add-on date repair is implemented but was not separately re-checked on
+screen after the fix; track/arena imports share the importer and registration
+flow but have no separate hardware run. The close path below is the kit's shutdown
+path; record a final close test on the next run. Installing and launching are
+manual XMB steps; nothing here is a hardware claim beyond what was actually
+run.
 
 ## 1. How a frame reaches the screen
 
@@ -161,6 +166,44 @@ The release reads assets from `/app0/data` and reads/writes config in
 `swap-interval-vsync=1`. Uninstall removes the `/app0` assets; the saves and
 shader cache in `/data/stk` remain, because the package format has no
 uninstall hook for that writable directory.
+
+## 3a. Add-ons (v0.11.0)
+
+The importer is `ps4/ps4_mods.cpp`; `main.cpp` calls `ps4_install_mods()`
+before `new AddonsManager()`. It scans `/data/stk/mods` and USB mounts for
+zips or unpacked karts/tracks, stages archives, and publishes only a complete
+installation under `/data/stk/supertuxkart/addons`. It keeps source paths and
+sizes in `/data/stk/mods/.ps4-imported`.
+
+STK 1.5 has exactly three installable add-on types: kart, track and arena.
+The importer covers all three. Arenas and soccer fields are technically
+tracks: they use `track.xml` and are installed under `tracks/`. The local
+registration preserves their loaded type (`arena` for battle/CTF arenas,
+`track` for soccer fields). The kart path is hardware-tested; track and arena
+imports use the same code path but still need their own hardware check.
+
+The non-obvious failure found on hardware: copying `MarioKart/` into
+`addons/karts/` succeeded, but the Add-ons screen showed nothing. The screen
+lists entries from `addons_installed.xml`, and `checkInstalledAddons()` only
+marked an existing catalogue entry as installed; it ignored local IDs absent
+from `addons.xml`. The release adds a local `Addon` constructor with
+`AS_APPROVED | installed`, adds missing valid karts/tracks in
+`checkInstalledAddons()`, and calls `saveInstalled()`. Among Us, installed
+through the in-game browser, was verified to load and race. Mario was then
+imported locally, registered and raced successfully.
+
+The earlier build wrote `date="0"` for a local add-on absent from the online
+catalogue, which rendered as 01/01/1970. The mod's XML has no date field, so
+`checkInstalledAddons()` now passes the add-on's filesystem modification time
+(the importer's install date) into the local `Addon` constructor. It also
+repairs an existing installed entry whose date is zero and saves it. The date
+repair is implemented; a separate post-fix on-screen check was not recorded.
+
+Limits: `.zip` only, lowercase `kart.xml`/`track.xml`, scan depth 4, and a
+source left in place after deleting the installed mod needs the state file
+cleared before it will import again. STK has no standalone library add-on
+type; a track's `<library>` scene assets are copied with the track folder.
+Standalone music or cup packs are not add-ons.
 
 ## 4. Logs: what to pull and what to read first
 
@@ -316,6 +359,7 @@ STK side:
 | `ps4/ps4-platform.cmake`, `ps4/ps4-post.cmake` | CMake seam, kit link, `--wrap=exit` |
 | `ps4/ps4_sdl_vulkan.cpp` | SDL Vulkan surface via the kit WSI |
 | `ps4/ps4_input.cpp`, `ps4/ps4_ime.cpp` | ScePad mapping, IME dialog |
+| `ps4/ps4_mods.cpp`, `ps4/ps4_mods.hpp` | drag-and-drop add-on importer |
 | `ps4/ps4_threads.cpp` | pthread wrappers the kit needs |
 | `ps4/ps4_trace.cpp` | milestone logging, shutdown after `__real_main` |
 

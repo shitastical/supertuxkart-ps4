@@ -111,6 +111,37 @@ Addon::Addon(const XMLNode &xml)
 };   // Addon(const XML&)
 
 // ----------------------------------------------------------------------------
+/** Creates a local add-on entry for a kart or track that is installed in the
+ *  add-ons directory but has no entry in the online catalogue.  The add-ons
+ *  screen only lists entries present in addons_installed.xml, so the importer
+ *  cannot make a dropped mod visible by copying its files alone. */
+Addon::Addon(const std::string &type, const core::stringw &name,
+             const std::string &dir_name, StkTime::TimeType date)
+{
+    m_name               = name;
+    m_id                 = createAddonId(dir_name);
+    m_dir_name           = dir_name;
+    m_designer           = "";
+    m_status             = AS_APPROVED;
+    m_installed          = true;
+    m_installed_revision = 0;
+    m_revision           = 0;
+    m_zip_file           = "";
+    m_description        = "";
+    m_icon_url           = "";
+    m_icon_basename      = "";
+    m_icon_revision      = 0;
+    m_size               = 0;
+    m_date               = date > 0 ? date : StkTime::getTimeSinceEpoch();
+    m_min_include_ver    = "";
+    m_max_include_ver    = "";
+    m_rating             = 0.0f;
+    m_icon_ready         = false;
+    m_still_exists       = false;
+    m_type               = type;
+}   // Addon(type, name, dir_name)
+
+// ----------------------------------------------------------------------------
 /** Copies the installation data (like description, revision, icon) from the
  *  downloaded online list to this entry.
 */

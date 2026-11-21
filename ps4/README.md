@@ -24,7 +24,8 @@ keeps the port-specific details.
 | Audio (SceAudioOut via MojoAL to SDL) | playable; 44.1 kHz mix, 1024-frame device buffer, deeper music queue |
 | Input (ScePad to STK gamepads) | implemented (`ps4_input.cpp`); each pad is a separate device for menus, tutorial, races and split-screen |
 | Text input | PS4 system IME via Cross on a focused field; current text is editable |
-| Runtime | playable on retail hardware: menus, tutorial and races load |
+| Add-ons | drag-and-drop importer (`ps4_mods.cpp`); all three STK types are covered and local entries are registered; kart path hardware-tested |
+| Runtime | playable on retail hardware: menus, tutorial, races and two-player split-screen verified |
 | `.pkg` | full standalone package builds and installs |
 
 `SDL_API_SURFACE.md` is the measured SDL2 surface STK needs: 188 symbols,
@@ -121,16 +122,41 @@ accept, so an existing value can be edited rather than retyped. Password fields
 are drawn with a centred bullet mask on PS4 so the entered characters remain
 visible.
 
+## Add-ons (v0.11.0)
+
+`ps4_mods.cpp` runs before the add-ons manager is created. It scans
+`/data/stk/mods` and USB layouts, extracts zips or copies folders to
+`/data/stk/supertuxkart/addons/{karts,tracks}`, and records sources in
+`/data/stk/mods/.ps4-imported`. All three STK add-on types are covered: karts
+use `kart.xml`; race tracks, battle arenas and soccer fields use `track.xml`.
+Arenas and soccer fields live under `tracks/` because STK implements them as
+tracks.
+
+The Add-ons screen does not discover files by itself: it reads
+`addons_installed.xml`. `AddonsManager::checkInstalledAddons()` now creates an
+approved installed entry for a valid local kart, track or arena that is
+missing from that file, then saves it. This is what makes drag-and-dropped
+add-ons appear under **Installed mods**. Among Us was verified through the online browser;
+Mario was verified through the local import and now races.
+
+Local add-ons have no date field in their XML, so the date column uses the
+add-on's filesystem modification time (normally the import date). Existing
+`date="0"` entries are rewritten at startup. The date repair is implemented;
+a separate post-fix on-screen check was not recorded.
+
 ## Known issues
 
-- Split-screen controller detection is still being fixed on retail hardware.
-  The port now opens exactly one standard ScePad per signed-in user at index
-  0, which is how the PS4 assigns local players. The previous build also
-  probed indices 1-3; that could return a handle that never reported a second
+- Split-screen was tested with two signed-in users after the pad fix. The
+  port opens exactly one standard ScePad per signed-in user at index 0, which
+  is how the PS4 assigns local players. The previous build also probed
+  indices 1-3; that could return a handle that never reported a second
   physical pad and then occupied player 2's slot before the second user signed
   in. Sign the second controller in to a second PS4 user or guest, then press
   Cross on it at kart selection. If it still does not join, the login-user
   list and a build timestamp are written to `/data/ps4-kit/boot-trace.log`.
+- Track, arena and soccer-field imports and the local-date display repair have
+  not had separate hardware tests. The kart import and online add-on download
+  paths were tested.
 - Online multiplayer has not been tested yet.
 - Do not change the controls or graphics settings. Those options have not been
   tested on PS4, and changing them may cause issues.

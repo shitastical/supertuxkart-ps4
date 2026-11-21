@@ -292,7 +292,7 @@ void trace_read_failure(int slot, int32_t handle, int32_t result,
         slot, handle, static_cast<uint32_t>(result), connected ? 1 : 0);
 }   // trace_read_failure
 
-bool open_pad(int slot, uint32_t now)
+bool open_pad(int slot, uint32_t now, const std::vector<int32_t>& users)
 {
     PadState& pad = pads[slot];
     if (pad.handle.load() >= 0)
@@ -301,7 +301,6 @@ bool open_pad(int slot, uint32_t now)
         return false;
     pad.next_open_ms = now + 1000;
 
-    const std::vector<int32_t> users = login_users();
     const std::vector<PadCandidate> candidates = pad_candidates(users);
     for (const PadCandidate& candidate : candidates)
     {
@@ -338,8 +337,10 @@ bool open_pad(int slot, uint32_t now)
         pad.read_ok.store(false);
         pad.have_previous = false;
         pad.cross_suppressed = false;
-        ps4_boot_tracef("port: slot %d <- ScePad user %d handle %d", slot,
-                        candidate.user, handle);
+        ps4_boot_tracef(
+            "port: slot %d: opened ScePad user %d handle %d "
+            "(waiting for connection)",
+            slot, candidate.user, handle);
         return true;
     }
 
@@ -515,10 +516,32 @@ void input_thread()
         }
 
         const uint32_t now = SDL_GetTicks();
+        const std::vector<int32_t> users = login_users();
+
+        // A signed-out user's handle is no longer usable.  Do not keep it in
+        // a slot: the next signed-in user must be able to take that pad.
+        if (!users.empty())
+        {
+            for (int index = 0; index < kPadCount; ++index)
+            {
+                PadState& pad = pads[index];
+                if (pad.handle.load() < 0 || pad.user < 0)
+                    continue;
+                if (std::find(users.begin(), users.end(), pad.user) ==
+                    users.end())
+                {
+                    ps4_boot_tracef(
+                        "port: slot %d: user %d signed out; closing pad",
+                        index, pad.user);
+                    disconnect_pad(index);
+                }
+            }
+        }
+
         for (int index = 0; index < kPadCount; ++index)
         {
             PadState& pad = pads[index];
-            if (pad.handle.load() < 0 && !open_pad(index, now))
+            if (pad.handle.load() < 0 && !open_pad(index, now, users))
                 continue;
 
             OrbisPadData data = {};
@@ -527,10 +550,29 @@ void input_thread()
                 handle < 0 ? -1 : scePadReadState(handle, &data);
             if (handle < 0 || read_result != 0 || !data.connected)
             {
-                trace_read_failure(index, handle, read_result,
-                                   data.connected);
-                pad.read_ok.store(false);
-                disconnect_pad(index);
+                const bool was_connected = pad.read_ok.exchange(false);
+                if (read_result != 0)
+                {
+                    // The handle itself is bad.  Close it and let the next
+                    // pass open one fresh handle for this user.
+                    trace_read_failure(index, handle, read_result,
+                                       data.connected);
+                    disconnect_pad(index);
+                }
+                else if (!data.connected)
+                {
+                    // The pad is simply off or asleep.  Keep its handle so
+                    // one user maps to one slot; closing it here makes the
+                    // other empty slots reopen the same user every second.
+                    if (was_connected)
+                    {
+                        ps4_boot_tracef(
+                            "port: slot %d: ScePad handle %d disconnected; "
+                            "holding it",
+                            index, handle);
+                        release_pad(index);
+                    }
+                }
                 continue;
             }
             // Announce the pad only after the kernel confirms a controller

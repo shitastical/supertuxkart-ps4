@@ -61,13 +61,16 @@ keyboard/mouse, game controllers, timers, threads, and file I/O.
 | `ps4/ps4-post.cmake` | end-of-build integration: `ps4_kit_link_mesa`, `ps4_kit_app`, datadir definition |
 | `ps4/build.sh` | sources `toolchain/env.sh`, calls `ps4_cmake`, builds with ninja |
 | `ps4/pkg.sh` | stages `eboot.bin` + data + assets, calls `scripts/make-pkg.sh` |
+| `ps4/ps4_mods.cpp`, `ps4/ps4_mods.hpp` | drag-and-drop add-on importer; scans internal/USB, stages zips, installs karts/tracks |
 | `ps4/tools/preflight.sh` | reports missing toolchain, sysroot libs, Mesa, assets, disk |
 | `ps4/SDL_API_SURFACE.md` | 188-symbol SDL2 surface measured from STK |
 | root `CMakeLists.txt` | `option(PS4_PORT)` + two guarded includes |
 | `src/config/user_config.hpp` | PS4 default renderer = Vulkan |
 
-The patch to STK itself is limited to the CMake hook, the two includes and the
-renderer default.
+The patch to STK itself is limited to the CMake hook, the two includes, the
+renderer default, the add-on registration hook in `main.cpp`, and the
+local-add-on registration in `src/addons/addon.*` and
+`src/addons/addons_manager.cpp`.
 
 ## 4. Dependency matrix
 
@@ -101,7 +104,7 @@ curl needs `--with-openssl` (the seed sysroot has it) and `--disable-shared`. sh
 be built with `-DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON
 -DBUILD_SHARED_LIBS=OFF`; install the static `shaderc_combined` and headers.
 
-## 5. The SDL2 layer (remaining core work)
+## 5. The SDL2 layer (implemented)
 
 `SDL_API_SURFACE.md` lists the exact surface. It is not a full SDL2 port and
 should not become one. Grouped by effort:
@@ -121,9 +124,11 @@ should not become one. Grouped by effort:
 6. **GL stubs** — Irrlicht's SDL device compiles GL code even when Vulkan is
    selected; the symbols only need to exist and return failure, never run.
 
-This layer is where the next engineering effort goes. It is deliberately not
-stubbed with fake success returns: a fake `SDL_Vulkan_CreateSurface` would
-crash inside RADV with no useful report.
+> Status note (2026-11-20): this layer is implemented and tested on retail
+> hardware. Vulkan surface creation, ScePad input, audio, the PS4 system IME and
+> two-player split-screen all run. It is deliberately not stubbed with fake
+> success returns: a fake `SDL_Vulkan_CreateSurface` would crash inside RADV
+> with no useful report.
 
 ## 6. Milestones
 
@@ -160,7 +165,7 @@ without the SDL layer.
 ```sh
 ps4/tools/preflight.sh
 ps4/build.sh
-STK_VERSION=00.01 ps4/pkg.sh
+STK_VERSION=00.11 ps4/pkg.sh
 ```
 
 `build.sh` passes `-DPS4_PORT=ON`, `-DNO_SHADERC=OFF`, disables GLES2, Wii
@@ -179,6 +184,13 @@ completed.
 
 ## 10. Build completed
 
+> Historical note: this section records the first v0.01 package from
+> 2026-11-19. The current v0.11.0 release is
+> `out/SuperTuxKart-PS4-v0.11.0.pkg` (1,161,756,672 bytes,
+> SHA-256 `953676340072d488bf1b99b6ad7d8c02ed1dc20844f1d1bf6c899a74905c827c`).
+> It adds the add-on importer, the split-screen pad fix and local add-on date
+> repair.
+
 On 2026-11-19 the cbfd toolchain (`~/cbfd-build`) was used to build the port
 and package it. The resulting file is
 `out/IV0000-STKR00001_00-STKPORT000000000.pkg` (1,160,773,632 bytes).
@@ -189,11 +201,46 @@ The package includes all 44 tracks and 18 karts from the official 1.5 release.
 No PS4 hardware was available, so the install/launch/runtime checks in M2-M5
 remain unverified.
 
-## 11. Runtime bring-up (2026-11-20)
+## 11. Add-on importer (v0.11.0)
 
-The port is **playable on retail hardware**: the menus render and the tutorial
-loads. The close path is the kit's `ps4_kit_exit` → `ps4kit_video_shutdown`
-sequence (record a final close test on the next run). The playable result
+`ps4/ps4_mods.cpp` runs before `new AddonsManager()` and scans
+`/data/stk/mods` plus USB mounts for zips or unpacked karts/tracks. It stages
+archives and publishes only a complete installation under
+`/data/stk/supertuxkart/addons`; source paths and sizes go in
+`/data/stk/mods/.ps4-imported`.
+
+STK 1.5 has three installable add-on types: kart, track and arena. The
+importer handles all three. Arenas and soccer fields are tracks internally,
+so they use `track.xml` and are installed under `tracks/`; the loaded track
+supplies the arena/soccer flags. There is no standalone library, music or cup
+add-on type. A track's `<library>` scene assets are part of its folder and
+are copied with it. Kart import is hardware-tested; track/arena import uses
+the same path but has not had a separate hardware test.
+
+The Add-ons screen reads `addons_installed.xml`, not the add-on directories.
+`AddonsManager::checkInstalledAddons()` originally only marked entries that
+were already in the online catalogue as installed, so a local `MarioKart`
+folder was invisible. The port now adds an approved/installed local `Addon`
+entry for valid karts, tracks and arenas missing from the catalogue, then
+saves the file. Among Us (installed through the online browser) and Mario (local import)
+were verified to load and race.
+
+The first local registration left `date="0"` in `addons_installed.xml`, which
+the screen rendered as 01/01/1970. Local kart/track XML has no date field, so
+the manager uses the add-on's filesystem modification time (the importer's
+install time) and repairs an existing zero-date installed entry at startup.
+The date repair is implemented; a separate post-fix on-screen check was not
+recorded.
+
+## 12. Runtime bring-up (2026-11-20)
+
+The port is **playable on retail hardware**: menus, tutorial, races and
+two-player split-screen run. The v0.11.0 release has passed online Among Us
+and local Mario install-and-race checks; the local date repair was not
+separately re-checked on screen, and track/arena imports have no separate
+hardware run. The close path is the kit's `ps4_kit_exit` →
+`ps4kit_video_shutdown` sequence
+(record a final close test on the next run). The playable result
 depended on two runtime fixes that the build integration above does not show:
 
 - the kit's present path called `sceGnmSubmitDone` before the VideoOut flip,

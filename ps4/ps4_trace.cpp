@@ -219,6 +219,10 @@ __attribute__((constructor(210))) static void ps4_trace_start() {
     // player profile, users.xml/players.xml and stdout.log were never persisted. /data/stk is
     // writable and survives an uninstall; the bundled game assets in /app0 do not.
     setenv("SUPERTUXKART_SAVEDIR", "/data/stk", 1);
+    // Puts STK's add-ons in /data/stk/supertuxkart/addons instead of the
+    // unwritable ./supertuxkart/addons inside /app0.  Online add-on downloads
+    // and the drag-and-drop mod importer both need a persistent writable path.
+    setenv("XDG_DATA_HOME", "/data/stk", 1);
     // RADV's shader/pipeline disk cache is compiled in (the kit's gpu/mesa-patches 0023-0025 make
     // it work on the PS4), but Mesa only enables it when a folder is named: otherwise it looks for
     // $XDG_CACHE_HOME or $HOME/.cache, neither of which exists on the console. Without it every
@@ -228,7 +232,8 @@ __attribute__((constructor(210))) static void ps4_trace_start() {
     mkdir("/data/stk/cache", 0777);
     setenv("MESA_SHADER_CACHE_DIR", "/data/stk/cache", 1);
     milestone("port: video driver dummy, data root %s, save dir /data/stk, "
-              "RADV shader cache /data/stk/cache", data_root);
+              "addons /data/stk/supertuxkart/addons, RADV shader cache "
+              "/data/stk/cache", data_root);
     // Either the environment or a marker file on the data partition switches the dump on, so a
     // console with no shell (this port has only FTP and klog) can ask for stack dumps between
     // installs: create /data/stk/watchdog-on and relaunch.

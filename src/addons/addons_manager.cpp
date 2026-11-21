@@ -51,6 +51,19 @@ using namespace Online;
 AddonsManager* addons_manager = 0;
 
 // ----------------------------------------------------------------------------
+/** Returns a stable display date for an add-on installed outside the online
+ *  catalogue. The mod format has no date field, so use the filesystem
+ *  modification time left by the importer; if the filesystem cannot provide
+ *  one, use the time this entry is first registered. */
+static StkTime::TimeType getLocalAddonDate(const std::string &path)
+{
+    struct stat info;
+    if (FileUtils::statU8Path(path, &info) == 0 && info.st_mtime > 0)
+        return info.st_mtime;
+    return StkTime::getTimeSinceEpoch();
+}   // getLocalAddonDate
+
+// ----------------------------------------------------------------------------
 /** Initialises the non-online component of the addons manager (i.e. handling
  *  the list of already installed addons). The online component is initialised
  *  later from a separate thread started from the news manager (see
@@ -352,7 +365,28 @@ void AddonsManager::checkInstalledAddons()
         if(dir.find(file_manager->getAddonsDir())==std::string::npos)
             continue;
         int n = getAddonIndex(kp->getIdent());
-        if(n<0) continue;
+        const StkTime::TimeType local_date = getLocalAddonDate(dir);
+        if(n<0)
+        {
+            const std::string &ident = kp->getIdent();
+            const std::string dir_name =
+                ident.compare(0, 6, "addon_") == 0 ? ident.substr(6) : ident;
+            if(!dir_name.empty())
+            {
+                Addon addon("kart", kp->getName(), dir_name, local_date);
+                addon.setInstalled(true);
+                m_addons_list.getData().push_back(addon);
+                something_was_changed = true;
+                Log::info("addons", "Adding locally installed kart '%s'.",
+                          dir_name.c_str());
+            }
+            continue;
+        }
+        if(m_addons_list.getData()[n].getDate() <= 0)
+        {
+            m_addons_list.getData()[n].setDate(local_date);
+            something_was_changed = true;
+        }
         if(!m_addons_list.getData()[n].isInstalled())
         {
             Log::info("addons", "Marking '%s' as being installed.",
@@ -371,7 +405,29 @@ void AddonsManager::checkInstalledAddons()
         if(dir.find(file_manager->getAddonsDir())==std::string::npos)
             continue;
         int n = getAddonIndex(track->getIdent());
-        if(n<0) continue;
+        const StkTime::TimeType local_date = getLocalAddonDate(dir);
+        if(n<0)
+        {
+            const std::string &ident = track->getIdent();
+            const std::string dir_name =
+                ident.compare(0, 6, "addon_") == 0 ? ident.substr(6) : ident;
+            if(!dir_name.empty())
+            {
+                const char *type = track->isArena() ? "arena" : "track";
+                Addon addon(type, track->getName(), dir_name, local_date);
+                addon.setInstalled(true);
+                m_addons_list.getData().push_back(addon);
+                something_was_changed = true;
+                Log::info("addons", "Adding locally installed track '%s'.",
+                          dir_name.c_str());
+            }
+            continue;
+        }
+        if(m_addons_list.getData()[n].getDate() <= 0)
+        {
+            m_addons_list.getData()[n].setDate(local_date);
+            something_was_changed = true;
+        }
         if(!m_addons_list.getData()[n].isInstalled())
         {
             Log::info("addons", "Marking '%s' as being installed.",

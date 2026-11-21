@@ -5,9 +5,9 @@ layout and did not contain the game assets under `/app0/data`, so it could not
 start from a normal install. The package also omitted
 `sce_sys/about/right.sprx`.
 
-There is no public package release at the moment. The current source builds a
-full, self-contained package with all data and assets inside `/app0/data`; see
-the [main README](README.md) for the build and install steps.
+This release is superseded by [v0.11.0](RELEASE_NOTES_v0.11.0.md). The current
+source builds a full, self-contained package with all data and assets inside
+`/app0/data`; see the [main README](README.md) for the build and install steps.
 
 Uninstalling the application removes the packaged files under `/app0`. Saves
 and configuration under `/data/stk` are separate user data and are not removed
