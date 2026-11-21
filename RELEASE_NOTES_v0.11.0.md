@@ -49,7 +49,7 @@ split-screen work.
   gamepad. This fixes the phantom player-2 slot that blocked the second pad.
 - Tested two-player split-screen with two signed-in users and two DualShock 4
   controllers.
-- Added DS4 prompt glyphs and the Mario Kart 8 Deluxe-style controller layout.
+- Added DS4 prompt glyphs and the console racing-game controller layout.
 - The input layer has four pad slots; three- and four-player split-screen were
   not tested.
 - Suppresses the first-frame Cross press on the race screen and releases a pad

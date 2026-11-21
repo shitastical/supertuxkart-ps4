@@ -8,7 +8,7 @@
 // a split-screen race.  The stick is analog in a race; in menus it is treated
 // as a full direction so navigation stays quick.
 //
-// Racing layout (Mario Kart 8 Deluxe style):
+// Racing layout (console racing style):
 //   Cross accelerate, Circle brake/reverse, left stick or D-pad steer
 //   R2 fire item, L2 drift, L1 nitro
 //   Square look back, Triangle rescue, Options pause

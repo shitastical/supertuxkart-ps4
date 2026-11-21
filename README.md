@@ -2,6 +2,8 @@
 
 An unofficial port of [SuperTuxKart](https://supertuxkart.net/) to the PlayStation 4. It ships as a single standalone package that contains the game and all of its data. Nothing has to be uploaded to the console separately.
 
+**Upstream version: SuperTuxKart 1.5.** The port is built from the SuperTuxKart source tree at commit `b2a9f22` (3 November 2026) and bundles the official 1.5 asset set: 44 tracks and 18 karts. Add-on compatibility is documented against 1.5.
+
 **Tested on one console: a PS4 slim running firmware 13.52.** No other model or firmware has been tested. Read [Tested configuration](#tested-configuration) and [Caveats](#caveats) before installing.
 
 This project is not affiliated with, endorsed by, or approved by Sony Interactive Entertainment or the SuperTuxKart team.
@@ -195,7 +197,7 @@ Uninstall the previous app if it is installed, then install the new package. Kee
 
 ## Controls
 
-The port uses a Mario Kart 8 Deluxe-style layout. These are the defaults on the tested driving and menu paths:
+The port uses a console racing-game layout. These are the defaults on the tested driving and menu paths:
 
 | Action | DualShock 4 |
 |---|---|

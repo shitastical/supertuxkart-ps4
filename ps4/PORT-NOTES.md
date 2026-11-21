@@ -8,7 +8,7 @@ ps4-kit) next.
 
 Status as of 2026-11-20: **playable on retail hardware** — menus, tutorial,
 races and two-player split-screen are verified. The v0.11.0 release has passed
-an online Among Us install-and-race and a local Mario install-and-race. The
+an online Among Us install-and-race and a local kart install-and-race. The
 local add-on date repair is implemented but was not separately re-checked on
 screen after the fix; track/arena imports share the importer and registration
 flow but have no separate hardware run. The close path below is the kit's shutdown
@@ -182,15 +182,15 @@ registration preserves their loaded type (`arena` for battle/CTF arenas,
 `track` for soccer fields). The kart path is hardware-tested; track and arena
 imports use the same code path but still need their own hardware check.
 
-The non-obvious failure found on hardware: copying `MarioKart/` into
+The non-obvious failure found on hardware: copying a kart folder into
 `addons/karts/` succeeded, but the Add-ons screen showed nothing. The screen
 lists entries from `addons_installed.xml`, and `checkInstalledAddons()` only
 marked an existing catalogue entry as installed; it ignored local IDs absent
 from `addons.xml`. The release adds a local `Addon` constructor with
 `AS_APPROVED | installed`, adds missing valid karts/tracks in
 `checkInstalledAddons()`, and calls `saveInstalled()`. Among Us, installed
-through the in-game browser, was verified to load and race. Mario was then
-imported locally, registered and raced successfully.
+through the in-game browser, was verified to load and race. A local kart was then
+imported, registered and raced successfully.
 
 The earlier build wrote `date="0"` for a local add-on absent from the online
 catalogue, which rendered as 01/01/1970. The mod's XML has no date field, so
@@ -313,7 +313,7 @@ run's timestamps before believing it.
   below it, which empties the menu stack and aborts the game. On PS4 that
   branch now pops only the login screen, so Circle returns to player creation
   and the application stays up; it is closed with PS > Close Application.
-- **Controls (2026-11-20b).** The pad layout is now Mario Kart 8 Deluxe's:
+- **Controls (2026-11-20b).** The pad layout is now a console racing layout:
   Cross accelerates, Circle brakes/reverses, the left stick steers, R2 fires,
   L2 drifts, L1 nitros, Square looks back, Triangle rescues, Options pauses.
   Pushing the stick forward no longer accelerates; only Cross does, and the

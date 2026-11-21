@@ -100,7 +100,7 @@ reinstalls. Delete `/data/stk` manually for a completely clean removal.
 | Square | - | Look back |
 | Options | Back | Pause |
 
-The layout is Mario Kart 8 Deluxe's: bottom face button accelerates, right face
+The layout is a standard console racing layout: bottom face button accelerates, right face
 button brakes, shoulders drift and fire. The left stick gives analog steering;
 the D-pad gives full-lock digital steering. Each controller is registered as a
 separate STK gamepad, so a second controller can join split-screen.
@@ -137,7 +137,7 @@ The Add-ons screen does not discover files by itself: it reads
 approved installed entry for a valid local kart, track or arena that is
 missing from that file, then saves it. This is what makes drag-and-dropped
 add-ons appear under **Installed mods**. Among Us was verified through the online browser;
-Mario was verified through the local import and now races.
+a locally imported kart was verified and now races.
 
 Local add-ons have no date field in their XML, so the date column uses the
 add-on's filesystem modification time (normally the import date). Existing

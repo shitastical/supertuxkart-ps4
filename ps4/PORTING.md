@@ -219,11 +219,11 @@ the same path but has not had a separate hardware test.
 
 The Add-ons screen reads `addons_installed.xml`, not the add-on directories.
 `AddonsManager::checkInstalledAddons()` originally only marked entries that
-were already in the online catalogue as installed, so a local `MarioKart`
+were already in the online catalogue as installed, so a locally copied kart
 folder was invisible. The port now adds an approved/installed local `Addon`
 entry for valid karts, tracks and arenas missing from the catalogue, then
-saves the file. Among Us (installed through the online browser) and Mario (local import)
-were verified to load and race.
+saves the file. Among Us (installed through the online browser) and a local-import
+kart were verified to load and race.
 
 The first local registration left `date="0"` in `addons_installed.xml`, which
 the screen rendered as 01/01/1970. Local kart/track XML has no date field, so
@@ -236,7 +236,7 @@ recorded.
 
 The port is **playable on retail hardware**: menus, tutorial, races and
 two-player split-screen run. The v0.11.0 release has passed online Among Us
-and local Mario install-and-race checks; the local date repair was not
+and local kart install-and-race checks; the local date repair was not
 separately re-checked on screen, and track/arena imports have no separate
 hardware run. The close path is the kit's `ps4_kit_exit` →
 `ps4kit_video_shutdown` sequence
