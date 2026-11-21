@@ -404,6 +404,7 @@ This is the consolidated list. Each item is also covered where relevant above.
 
 ### Add-ons
 
+- **Uninstalling add-ons from the in-game menu does not work.** The menu returns an error instead of removing the add-on. Remove it manually: delete its folder under `/data/stk/supertuxkart/addons/` (under `karts/` or `tracks/`), then remove its line from `/data/stk/mods/.ps4-imported` if you kept the source.
 - The curated menu was tested with one kart (Among Us). Other catalogue items are untested.
 - Manual import was tested with one kart ZIP (`example_kart.zip`).
 - Track, arena, and soccer import are implemented, not verified.
@@ -469,6 +470,9 @@ The mod may be missing assets or may target a different game version. The import
 
 **A mod was replaced unexpectedly.**
 Add-ons are stored one directory per name. A changed source with the same name replaces the installed one.
+
+**Uninstalling an add-on from the in-game menu fails.**
+This is a known issue: the game returns an error instead of removing the add-on. Delete its folder under `/data/stk/supertuxkart/addons/` manually. If the original source is still in a scan location, also remove its line from `/data/stk/mods/.ps4-imported`, or the next launch can import it again.
 
 **I changed a graphics or controls setting and something is off.**
 Those settings are untested on this port. Revert to the defaults. If that does not help, a full reset of `/data/stk` clears settings but also deletes saves, add-ons, and the shader cache.

@@ -205,6 +205,8 @@ Limits:
 
 ## Caveats
 
+- Uninstalling an add-on from the in-game menu fails with an error. Remove the
+  installed folder under `/data/stk/supertuxkart/addons/` manually.
 - Controls settings and graphics settings have not been tested. Do not change
   them; the release is only verified with the default mapping and default
   graphics.
