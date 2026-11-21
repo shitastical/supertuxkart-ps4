@@ -315,7 +315,17 @@ void CGUIEditBox::setPasswordBox(bool passwordBox, wchar_t passwordChar)
 {
     PasswordBox = passwordBox;
     if (PasswordBox)
+    {
+#ifdef __PS4__
+        // Use a centred bullet for the mask.  The asterisk used by the
+        // desktop call sites sits at the top of Cantarell's em box and was
+        // not visible in the PS4 single-line edit box, so a password looked
+        // empty even though its text had been entered.
+        PasswordChar = U'\u2022';
+#else
         PasswordChar = (char32_t)passwordChar;
+#endif
+    }
     if (!m_edit_text.empty())
         updateGlyphLayouts();
 }

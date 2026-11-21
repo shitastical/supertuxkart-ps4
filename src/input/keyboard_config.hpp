@@ -41,6 +41,7 @@ public:
 
     virtual void setDefaultBinds();
     virtual void save(std::ofstream& stream);
+    virtual irr::core::stringw getBindingAsString(const PlayerAction action) const;
 
     // ------------------------------------------------------------------------
     virtual bool isGamePad()  const { return false; }

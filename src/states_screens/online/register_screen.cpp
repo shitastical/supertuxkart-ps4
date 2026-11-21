@@ -207,12 +207,20 @@ void RegisterScreen::onFocusChanged(GUIEngine::Widget* previous,
                                     GUIEngine::Widget* focus,  int playerID)
 {
     TextBoxWidget *online_name = getWidget<TextBoxWidget>("username");
+#ifndef __PS4__
     if (focus == online_name)
     {
         TextBoxWidget *local_name = getWidget<TextBoxWidget>("local_username");
         if (online_name->getText() == "")
             online_name->setText(local_name->getText());
     }
+#else
+    // Do not copy the local player name into the online name when the focus
+    // moves.  On PS4 this made every field the player moved down to appear
+    // pre-filled with the previous field's text (and overwrote an empty online
+    // name before the player could type their own).
+    (void)online_name;
+#endif
 }   // onFocusChanged
 
 // -----------------------------------------------------------------------------
@@ -570,8 +578,17 @@ bool RegisterScreen::onEscapePressed()
         // so quit stk. At this stage there are two menus on the stack:
         // 1) The UserScreen,  2) RegisterStreen
         // Popping them both will trigger STK to close.
+#ifdef __PS4__
+        // On PS4 a menu press must not close the application: there is no
+        // local profile yet, the player creation screen is still below this
+        // one, and emptying the stack aborts the main loop. Return true so
+        // only this screen pops and the player can carry on (the app is
+        // closed with PS > Close Application instead).
+        return true;
+#else
         StateManager::get()->popMenu();
         return true;
+#endif
     }
     return true;
 }   // onEscapePressed

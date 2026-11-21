@@ -5,9 +5,16 @@
 // pushes the key events STK already understands.  This keeps the game's
 // existing keyboard bindings and makes the menus and driving usable without
 // a second input abstraction.
+//
+// Racing layout (Mario Kart 8 Deluxe style):
+//   Cross accelerate, Circle brake/reverse, left stick or D-pad steer
+//   R2 fire item, L2 drift, L1 nitro
+//   Square look back, Triangle rescue, Options pause
+// Menus keep Cross to select, Circle/Options to go back.
 
 #include <SDL.h>
 
+#include "input/input_manager.hpp"
 #include "ps4_kit_diag.h"
 
 #include <orbis/Pad.h>
@@ -70,16 +77,24 @@ void input_thread()
     // so presses made inside it do not leak into the menu when it closes.
     bool cross_suppressed = false;
     bool resync = false;
+    bool mode_known = false;
+    bool last_in_game = false;
 
+    // One entry per SDL key this thread can emit. UP and DOWN are the
+    // throttle and brake in a race and menu navigation outside one, so each
+    // key is driven by exactly one control per mode.
     KeyState previous[] = {
-        { SDLK_UP, false },
-        { SDLK_DOWN, false },
-        { SDLK_LEFT, false },
-        { SDLK_RIGHT, false },
-        { SDLK_RETURN, false },
-        { SDLK_ESCAPE, false },
-        { SDLK_SPACE, false },
-        { SDLK_LSHIFT, false },
+        { SDLK_UP, false },        // 0: Cross accelerate / menu up
+        { SDLK_DOWN, false },      // 1: Circle brake / menu down
+        { SDLK_LEFT, false },      // 2: steer left
+        { SDLK_RIGHT, false },     // 3: steer right
+        { SDLK_RETURN, false },    // 4: Cross, menu select
+        { SDLK_ESCAPE, false },    // 5: Options pause / Circle menu back
+        { SDLK_SPACE, false },     // 6: R2, fire item (STK's PA_FIRE)
+        { SDLK_v, false },         // 7: L2, drift (STK's PA_DRIFT)
+        { SDLK_b, false },         // 8: Square, look back
+        { SDLK_n, false },         // 9: L1, nitro
+        { SDLK_BACKSPACE, false }, // 10: Triangle, rescue
     };
 
     while (true)
@@ -106,32 +121,57 @@ void input_thread()
             continue;
         }
 
-        bool held[8] = {};
-        // D-pad and left stick both drive the menu / steering arrows.
-        held[0] = (data.buttons & ORBIS_PAD_BUTTON_UP) != 0 ||
-                  data.leftStick.y < 128 - kStickDeadzone;
-        held[1] = (data.buttons & ORBIS_PAD_BUTTON_DOWN) != 0 ||
-                  data.leftStick.y > 128 + kStickDeadzone;
+        const bool in_game = input_manager != nullptr &&
+                             input_manager->getMode() == InputManager::INGAME;
+        const bool cross = (data.buttons & ORBIS_PAD_BUTTON_CROSS) != 0;
+        const bool circle = (data.buttons & ORBIS_PAD_BUTTON_CIRCLE) != 0;
+        const bool square = (data.buttons & ORBIS_PAD_BUTTON_SQUARE) != 0;
+        const bool triangle = (data.buttons & ORBIS_PAD_BUTTON_TRIANGLE) != 0;
+        const bool options = (data.buttons & ORBIS_PAD_BUTTON_OPTIONS) != 0;
+        const bool l1 = (data.buttons & ORBIS_PAD_BUTTON_L1) != 0;
+        const bool l2 = (data.buttons & ORBIS_PAD_BUTTON_L2) != 0;
+        const bool r2 = (data.buttons & ORBIS_PAD_BUTTON_R2) != 0;
+
+        bool held[sizeof(previous) / sizeof(previous[0])] = {};
+        // Mario Kart 8 Deluxe layout: Cross is the throttle, Circle the brake,
+        // the left stick steers, L2 drifts and R2 uses the item. Pushing the
+        // stick forward no longer accelerates; in a menu the same stick and
+        // D-pad scroll, so a trigger squeeze never moves a list.
+        held[0] = (in_game && cross) ||
+                  (!in_game && ((data.buttons & ORBIS_PAD_BUTTON_UP) != 0 ||
+                   data.leftStick.y < 128 - kStickDeadzone));
+        held[1] = (in_game && circle) ||
+                  (!in_game && ((data.buttons & ORBIS_PAD_BUTTON_DOWN) != 0 ||
+                   data.leftStick.y > 128 + kStickDeadzone));
         held[2] = (data.buttons & ORBIS_PAD_BUTTON_LEFT) != 0 ||
                   data.leftStick.x < 128 - kStickDeadzone;
         held[3] = (data.buttons & ORBIS_PAD_BUTTON_RIGHT) != 0 ||
                   data.leftStick.x > 128 + kStickDeadzone;
-        // Cross selects, Circle backs out, Square fires, Options pauses.
-        held[4] = (data.buttons & ORBIS_PAD_BUTTON_CROSS) != 0;
-        held[5] = (data.buttons & ORBIS_PAD_BUTTON_CIRCLE) != 0 ||
-                  (data.buttons & ORBIS_PAD_BUTTON_OPTIONS) != 0;
-        held[6] = (data.buttons & ORBIS_PAD_BUTTON_SQUARE) != 0;
-        held[7] = (data.buttons & ORBIS_PAD_BUTTON_L1) != 0 ||
-                  (data.buttons & ORBIS_PAD_BUTTON_R1) != 0;
 
-        // Adopt the pad state after the dialog without emitting the edges that
-        // happened while the thread was paused (the system dialog owned them).
-        if (resync)
+        // In a race: R2 fires, L2 drifts, L1 nitros, Square looks back,
+        // Triangle rescues, Options pauses. In the menus: Cross selects and
+        // Circle/Options back out.
+        held[4] = !in_game && cross;
+        held[5] = options || (!in_game && circle);
+        held[6] = in_game && r2;
+        held[7] = in_game && l2;
+        held[8] = in_game && square;
+        held[9] = in_game && l1;
+        held[10] = in_game && triangle;
+
+        // Adopt the pad state after a dialog, and whenever the game switches
+        // between menu and race, without emitting the edges that happened
+        // while the other side owned input. Selecting a kart with Cross does
+        // not fire an item on the first frame of the race, and a trigger held
+        // through the transition starts working without a stray menu edge.
+        if (resync || !mode_known || in_game != last_in_game)
         {
             for (unsigned int i = 0; i < sizeof(previous) / sizeof(previous[0]); ++i)
                 previous[i].down = held[i];
             cross_suppressed = held[4];
             resync = false;
+            mode_known = true;
+            last_in_game = in_game;
             SDL_Delay(16);
             continue;
         }
@@ -142,8 +182,8 @@ void input_thread()
                 continue;
             previous[i].down = held[i];
 
-            // Cross is Return everywhere except in a focused edit box, where it
-            // deliberately opens the system keyboard.
+            // Cross is Return only in a menu. In a race it is UP (index 0),
+            // so it never opens the IME or a dialog.
             if (i == 4)
             {
                 if (held[i])

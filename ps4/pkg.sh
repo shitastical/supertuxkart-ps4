@@ -43,27 +43,61 @@ EBOOT="$BUILD/supertuxkart_eboot/eboot.bin"
 [[ -f "$EBOOT" ]] || { echo "missing $EBOOT (run ps4/build.sh)" >&2; exit 1; }
 [[ -d "$STK/data" ]] || { echo "missing $STK/data" >&2; exit 1; }
 
+# The data root is a build-time choice. A release package must not contain a
+# binary that reads /data/stk, and an eboot-only package must not contain one
+# that looks for data inside /app0 that was deliberately left out.
+EXTERNAL_DATA=""
+if [[ -f "$BUILD/CMakeCache.txt" ]]; then
+    EXTERNAL_DATA="$(sed -n 's/^PS4_EXTERNAL_DATA:BOOL=//p' "$BUILD/CMakeCache.txt" | tail -1)"
+fi
+if [[ "$EXTERNAL_DATA" != "ON" && "$EXTERNAL_DATA" != "OFF" ]]; then
+    echo "cannot tell whether $BUILD uses /data/stk (PS4_EXTERNAL_DATA is '$EXTERNAL_DATA')" >&2
+    echo "re-run ps4/build.sh with PS4_EXTERNAL_DATA=OFF for a release or ON for eboot-only" >&2
+    exit 1
+fi
+if [[ "${STK_PKG_EBOOT_ONLY:-0}" == "1" && "$EXTERNAL_DATA" != "ON" ]]; then
+    echo "eboot-only package needs PS4_EXTERNAL_DATA=ON; $BUILD was built for packaged data" >&2
+    exit 1
+fi
+if [[ "${STK_PKG_EBOOT_ONLY:-0}" != "1" && "$EXTERNAL_DATA" != "OFF" ]]; then
+    echo "full package needs PS4_EXTERNAL_DATA=OFF; $BUILD was built to read /data/stk" >&2
+    exit 1
+fi
+
 rm -rf "$STAGE"
 mkdir -p "$STAGE/sce_sys"
 
 cp "$EBOOT" "$STAGE/eboot.bin"
 
-# Normally the assets ride inside the package (installed at /app0/data).
-# STK_PKG_EBOOT_ONLY=1 leaves them out: the port then reads /data/stk/data, which
-# is uploaded once over FTP, so a code iteration installs only the eboot.
+# The release package carries the assets in /app0/data, so uninstalling the
+# app removes them. STK_PKG_EBOOT_ONLY=1 is the development loop: it leaves the
+# assets out and the PS4_EXTERNAL_DATA build reads /data/stk/data, uploaded once
+# over FTP, so a code iteration installs only the eboot.
 if [[ "${STK_PKG_EBOOT_ONLY:-0}" != "1" ]]; then
-    # STK's FileManager reads /app0/data (SUPERTUXKART_DATADIR="/app0").
-    # Code data and the asset tree share that directory in release tarballs.
-    cp -a "$STK/data" "$STAGE/data"
-
-    # Assets are a separate checkout (tracks/, karts/, textures/, ...). When it is
-    # present, merge it into data/ so the game finds everything from one root.
+    # A "full" package with no tracks is not a release; fail instead of
+    # silently shipping an app that has nothing to load.
     ASSETS="${STK_ASSETS:-$STK/../stk-assets}"
-    if [[ -d "$ASSETS/tracks" ]]; then
-        cp -a "$ASSETS/." "$STAGE/data/"
-    else
-        echo "warning: no stk-assets at $ASSETS; the game will start but have" >&2
-        echo "         no tracks/karts. Set STK_ASSETS to the checkout." >&2
+    if [[ ! -d "$ASSETS/tracks" ]]; then
+        echo "missing assets at $ASSETS (need the stk-assets checkout with tracks/)" >&2
+        echo "set STK_ASSETS to that checkout; refusing to build an incomplete release" >&2
+        exit 1
+    fi
+
+    # STK's FileManager reads /app0/data (SUPERTUXKART_DATADIR="/app0").
+    # The asset tree supplies tracks/karts/music/etc.; the code's data/ is
+    # the overlay tied to this source revision and must be copied last. A
+    # stale stk-assets checkout can otherwise replace options_video.stkgui
+    # with an older copy that lacks benchmarkSelect, crashing the Video tab
+    # in release builds where asserts are compiled out.
+    mkdir -p "$STAGE/data"
+    cp -a "$ASSETS/." "$STAGE/data/"
+    cp -a "$STK/data/." "$STAGE/data/"
+
+    if ! grep -q 'id="benchmarkSelect"' \
+        "$STAGE/data/gui/screens/options/options_video.stkgui"; then
+        echo "staged options_video.stkgui is missing benchmarkSelect;" >&2
+        echo "the code data overlay did not win over the asset tree" >&2
+        exit 1
     fi
 else
     echo "eboot-only package: assets are read from /data/stk/data" >&2
@@ -79,11 +113,11 @@ cp "$ICON" "$STAGE/sce_sys/icon0.png"
 # make-pkg.sh requires TITLE_ID = 4 letters + 5 digits.
 TITLE_ID="STKR00001"
 LABEL="STKPORT"
-# STK_OUT keeps a large build off a full root disk (the package is ~1.2 GB).
-OUT="${STK_OUT:-$STK/out}"
-mkdir -p "$OUT"
-PKG="$(NO_RIGHT_SPRX=1 bash "$KIT/scripts/make-pkg.sh" \
+mkdir -p "$STK/out"
+# make-pkg.sh adds sce_sys/about/right.sprx unless NO_RIGHT_SPRX=1. Keep it:
+# a fresh console can refuse to launch a package that omits the entitlement.
+PKG="$(bash "$KIT/scripts/make-pkg.sh" \
         "$STAGE" "$TITLE_ID" "SuperTuxKart" "$VERSION" "$LABEL" \
-        "$OUT" | tail -1)"
+        "$STK/out" | tail -1)"
 
 echo "$PKG"

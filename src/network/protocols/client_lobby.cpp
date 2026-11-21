@@ -1660,8 +1660,8 @@ void ClientLobby::addSpectateHelperMessage() const
 
     // I18N: Message shown in game to tell the player it's possible to change
     // the camera target in spectate mode of network
-    core::stringw msg = _("Press <%s> or <%s> to change the targeted player, "
-        "<%s> or <%s> for the camera position.", left, right, back, accel);
+    core::stringw msg = _("Press %s or %s to change the targeted player, "
+        "%s or %s for the camera position.", left, right, back, accel);
     MessageQueue::add(MessageQueue::MT_GENERIC, msg);
 }   // addSpectateHelperMessage
 

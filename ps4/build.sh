@@ -30,10 +30,13 @@ if [[ -f "$HOME/cbfd-build/env.sh" ]]; then
     export PS4_SYSROOT="${PS4_SYSROOT:-$HOME/cbfd-build/sysroot}"
     export OPENORBIS="${OPENORBIS:-$HOME/cbfd-build/openorbis}"
 fi
-export PS4_MESA_BUILD="${PS4_MESA_BUILD:-$HOME/cbfd-build/build/mesa}"
-
 # shellcheck source=/dev/null
 source "$KIT/toolchain/env.sh"
+# The kit's seed build is the one the kit patches (including the VideoOut flip
+# accounting in ac_ps4_drm.c). cbfd's older Mesa archive can be missing
+# ac_ps4_flip_made, which create-fself then rejects. Override explicitly if
+# your kit build is elsewhere.
+export PS4_MESA_BUILD="${PS4_MESA_BUILD:-${PSB:-$HOME/ps4kit-build}/build/mesa}"
 
 for t in cmake ninja; do
     command -v "$t" >/dev/null || { echo "$t not found" >&2; exit 1; }
@@ -62,6 +65,8 @@ fi
 # ps4_cmake() from env.sh: the kit's toolchain, Release, CFLAGS cleared.
 ps4_cmake -S "$STK" -B "$BUILD" -G Ninja \
     -DPS4_PORT=ON \
+    -DPS4_EXTERNAL_DATA="${PS4_EXTERNAL_DATA:-OFF}" \
+    -DPS4_MESA_BUILD="$PS4_MESA_BUILD" \
     -DPS4_MESA_SRC="$PS4_SYSROOT" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCHECK_ASSETS=OFF \

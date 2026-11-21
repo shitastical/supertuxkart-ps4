@@ -1,89 +1,155 @@
 # SuperTuxKart for PS4
 
-A port of [SuperTuxKart](https://supertuxkart.net/) to the PlayStation 4,
-built on [ps4-kit](https://github.com/iHaiDeeZ/ps4-kit) with Mesa's RADV
-driver and the console's VideoOut display path.
+An unofficial port of [SuperTuxKart](https://supertuxkart.net/) to the
+PlayStation 4, built with [ps4-kit](https://github.com/iHaiDeeZ/ps4-kit),
+Mesa's RADV driver, and the console's VideoOut display path.
 
-SuperTuxKart's own Vulkan renderer is used. This repository adds the PS4
-platform layer (SDL2 video/input/audio, Vulkan surface creation, filesystem
-root), the build and packaging scripts, and the runtime notes.
+The game uses SuperTuxKart's own Vulkan renderer. This repository adds the PS4
+platform layer (SDL2 video, input and audio, Vulkan surface creation, the
+filesystem root), the build and packaging scripts, and the runtime notes.
 
 ## Status
 
-Playable on a real PS4: races, menus, and all of the maps seem to work fine.
-This is an unofficial homebrew port, not an official SuperTuxKart release, and
-it has not been thoroughly tested for bugs. Expect rough edges. Tested on a PS4
-slim on 13.52 firmware. The current release is **v0.10.0**.
+Playable on a retail PS4. Menus, races and the game's maps work. This is an
+unofficial homebrew port, not an official SuperTuxKart release, and it has not
+been thoroughly tested for bugs. The current test console is a PS4 slim on
+13.52 firmware.
 
-## Install
+There is **no public package release at the moment**. The older v0.10.0 package
+was withdrawn because it was built for the development data layout and did not
+contain the assets. Do not install it. Build the current full package from
+source with the instructions below.
 
-A PS4 with homebrew package installation enabled is required.
+## Build a normal, completely installable package
 
-Download the full package from the
-[**v0.10.0 release**](https://github.com/shitastical/supertuxkart-ps4/releases/tag/v0.10.0):
+The normal build is a self-contained `.pkg`: the executable and all game data
+and assets are staged under `/app0/data` inside the package. Installing it
+needs no FTP upload, no `/data/stk/data` tree, and no development package. When
+the console uninstalls the application, the packaged files under `/app0` are
+removed with it.
 
-- `SuperTuxKart-PS4-v0.10.0.pkg` — 1.1 GiB, includes the game data and assets.
+### Prerequisites
 
-Install it with your package installer and launch SuperTuxKart from the home
-screen. A normal install needs no separate data upload.
+Build on Linux (WSL2 is fine). You need:
 
-Saves and configuration are kept under `/data/stk/config-0.10/`.
+- [ps4-kit](https://github.com/iHaiDeeZ/ps4-kit) with its clang 21 toolchain,
+  OpenOrbis runtime, sysroot and Mesa/RADV built once.
+- The port libraries in the ps4-kit sysroot: SDL2, shaderc, freetype,
+  harfbuzz, libpng, libjpeg, zlib, curl and OpenSSL (mbedTLS also works).
+  The seed sysroot supplies these; [`ps4/PORTING.md`](ps4/PORTING.md) has the
+  dependency matrix if a library is missing.
+- SuperTuxKart's [asset checkout](https://github.com/supertuxkart/stk-assets)
+  with `tracks/`. Put it next to the source directory or set `STK_ASSETS`.
+- About 8 GiB of free disk space and a space-free build directory. The scripts
+  use `cmake_build-ps4/` by default and automatically fall back to a temporary
+  space-free path when the checkout path contains spaces.
 
-## Controls
+Build ps4-kit once:
 
-The DualShock 4 is mapped to SuperTuxKart's keyboard bindings:
+```sh
+git clone https://github.com/iHaiDeeZ/ps4-kit "$HOME/ps4-kit"
+bash "$HOME/ps4-kit/scripts/seed-build-tree.sh"
+bash "$HOME/ps4-kit/gpu/build-mesa.sh"
+```
 
-| Input | Action |
-|---|---|
-| D-pad / left stick | Menus, steering, accelerate (up) and brake (down) |
-| Cross | Select / confirm |
-| Circle or Options | Back / pause |
-| Square | Fire |
-| L1 or R1 | Drift |
-
-Cross on a focused text field opens the system keyboard.
-
-## Known issues
-
-- **Music sometimes slows down and the audio crackles.** Audio playback is not fully
-  stable yet. Until this is fixed, it is recommended to turn the music off in
-  the game's audio options (set the music volume to 0).
-- **Controls are not very good.** The controller bindings aren't the best right now.
-  This will be fixed later.
-
-## Build from source
-
-Requirements:
-
-- ps4-kit with its toolchain, sysroot and Mesa/RADV built
-  (`scripts/seed-build-tree.sh`, then `gpu/build-mesa.sh`)
-- the port libraries listed in [`ps4/PORTING.md`](ps4/PORTING.md)
-- SuperTuxKart's asset checkout (`stk-assets`) next to this directory
+Build the game and the full package:
 
 ```sh
 git clone https://github.com/shitastical/supertuxkart-ps4.git
 cd supertuxkart-ps4
-# place stk-assets at ../stk-assets, or set STK_ASSETS=/path/to/stk-assets
-ps4/build.sh
-ps4/pkg.sh
+
+# The default is ../stk-assets. Use STK_ASSETS for another checkout.
+git clone https://github.com/supertuxkart/stk-assets.git ../stk-assets
+
+ps4/tools/preflight.sh          # prints anything still missing, installs nothing
+PS4_EXTERNAL_DATA=OFF ps4/build.sh
+STK_VERSION=00.11 ps4/pkg.sh
 ```
 
-`ps4/build.sh` writes to `cmake_build-ps4/` (or a space-free fallback under
-`/tmp` when the checkout path contains spaces). `ps4/pkg.sh` builds the full
-package (game data and assets) and writes it to `out/`. For fast iteration,
-`STK_PKG_EBOOT_ONLY=1` builds only the executable; after uploading the data to
-`/data/stk` once, use `ps4/deploy.sh` for the rebuild/upload loop. The
-iteration package is not a standalone install.
+The package is written to:
 
-Runtime notes, the present-path contract and the debugging playbook are in
-[`ps4/PORT-NOTES.md`](ps4/PORT-NOTES.md); the integration dossier is
-[`ps4/PORTING.md`](ps4/PORTING.md). The upstream project README is kept as
+```text
+out/IV0000-STKR00001_00-STKPORT000000000.pkg
+```
+
+`PS4_EXTERNAL_DATA=OFF` is the default and is required for a normal package.
+`ps4/pkg.sh` checks the build cache and refuses to package a development
+binary as a full release. It also refuses to build a "full" package without a
+`stk-assets` checkout containing `tracks/`.
+
+Useful overrides:
+
+| Variable | Meaning |
+|---|---|
+| `PS4_KIT` | ps4-kit checkout; default `~/ps4-kit` |
+| `BUILD_DIR` | build tree; default `cmake_build-ps4` or a space-free fallback |
+| `STK_ASSETS` | asset checkout; default `../stk-assets` |
+| `STK_VERSION` | package content version, in the form `XX.YY` |
+| `JOBS` | parallel build jobs; default the host CPU count |
+
+For example:
+
+```sh
+BUILD_DIR="$HOME/stk-ps4-build" STK_VERSION=00.11 ps4/build.sh
+BUILD_DIR="$HOME/stk-ps4-build" STK_VERSION=00.11 ps4/pkg.sh
+```
+
+### Install and uninstall
+
+Copy the `.pkg` to the PS4, install it with your package installer, and launch
+SuperTuxKart from the home screen. The full package contains the game data, so
+there is nothing else to upload.
+
+Uninstalling the application removes the executable and the packaged
+`/app0/data` assets. SuperTuxKart stores user data separately under
+`/data/stk/` (configuration, profiles and the RADV shader cache). The PS4
+package format has no uninstall hook for that writable directory, so delete
+`/data/stk/` manually if you want a completely clean removal, including saves
+and settings.
+
+Do **not** use `ps4/deploy.sh` or `STK_PKG_EBOOT_ONLY=1` for a normal install.
+Those produce the small development iteration package, which expects assets at
+`/data/stk/data` and is not standalone.
+
+## Controls
+
+The current layout is Mario Kart 8 Deluxe's:
+
+| Input | Menus | Race |
+|---|---|---|
+| Left stick / D-pad | Navigate | Steer |
+| Cross | Select | Accelerate |
+| Circle | Back | Brake / reverse |
+| R2 | - | Fire item |
+| L2 | - | Drift |
+| L1 | - | Nitro |
+| Triangle | - | Rescue |
+| Square | - | Look back |
+| Options | Back | Pause |
+
+Steering is digital for now. Cross on a focused text field opens the PS4 system
+keyboard. The keyboard starts with the field's current text, including password
+fields, and the result replaces the old contents so any field can be edited.
+The face-button and shoulder prompts use the DualShock 4 glyphs in
+`data/ttf/DS4Prompts.ttf`.
+
+## Known issues
+
+- Online multiplayer and split-screen have not been tested yet.
+- Do not change the controls or graphics settings. Those options have not been
+  tested on PS4, and changing them may cause issues.
+
+## Technical notes
+
+Build and runtime details are in [`ps4/PORTING.md`](ps4/PORTING.md) and
+[`ps4/PORT-NOTES.md`](ps4/PORT-NOTES.md). The port source is under `ps4/`.
+The upstream SuperTuxKart README is kept as
 [`README.stk.md`](README.stk.md).
 
 ## Credits and license
 
 SuperTuxKart is by the SuperTuxKart team and contributors. ps4-kit is by
-iHaiDeez. The port uses Mesa/RADV, SDL2, OpenOrbis and the cbfd toolchain.
+iHaiDeeZ. The port uses Mesa/RADV, SDL2, OpenOrbis and the cbfd toolchain.
 
 The code is distributed under the GNU General Public License v3; see
 [`COPYING`](COPYING). Game data is under a mixture of licenses, also described

@@ -192,7 +192,11 @@ void OptionsScreenInput::init()
     }
     else
     {
+#ifdef __PS4__
+        getWidget("help1")->setText(_("Press Cross to configure a device"));
+#else
         getWidget("help1")->setText(_("Press enter or double-click on a device to configure it"));
+#endif
         getWidget("help2")->setVisible(true);
     }
 }   // init

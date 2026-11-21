@@ -9,9 +9,12 @@
 // calls ps4_ime_request_open(), and ps4_ime_poll() (main thread) opens the
 // system dialog.
 //
-// An accepted result is pushed as SDL_TEXTINPUT, followed by a Return key
-// press, so edit boxes that submit on Enter commit the field the same way a
-// hardware keyboard would.
+// The IME starts with the focused text box's current value, so the player can
+// backspace and edit it instead of typing the whole thing again.  This applies
+// to password fields too: they are ordinary editable text boxes, only drawn
+// with a mask.  On accept, the edited value is written back to the same text
+// box (replacing the old contents, never appending) and a Return key is
+// pushed, so the edit box submits it the same way a hardware keyboard would.
 //
 // The PS4 IME API works in SceWChar16 (UTF-16).  The OpenOrbis headers spell
 // those fields wchar_t, but this target's wchar_t is 4 bytes, so the actual
@@ -31,15 +34,22 @@
 
 #include "ps4_kit_diag.h"
 
-#include "guiengine/widget.hpp"
+#include "guiengine/engine.hpp"
+#include "guiengine/widgets/text_box_widget.hpp"
+#include <IGUIEditBox.h>
 
 namespace
 {
-constexpr size_t kMaxChars = 16; // UTF-16 code units; keeps UTF-8 below SDL's 32-byte buffer
-constexpr size_t kMaxUtf8 = 31;
+// STK's text boxes are at most a few dozen characters.  256 UTF-16 units
+// leaves room to show an existing value in full while still bounding the
+// system buffer.  The actual IME limit is the field's own max where set.
+constexpr size_t kMaxChars = 256;
+constexpr float kScreenWidth = 1920.0f;
+constexpr float kScreenHeight = 1080.0f;
 
 const char16_t* const kPlaceholder = u"Player name";
-const char16_t* const kTitle = u"Enter your name";
+// The IME is shared by every text field, so a fixed title would be wrong.
+const char16_t* const kTitle = u"";
 
 std::atomic<bool> text_field_active{false};
 std::atomic<bool> open_requested{false};
@@ -48,23 +58,118 @@ std::atomic<bool> module_loaded{false};
 std::atomic<bool> cancel_requested{false};
 int32_t ime_user = -1;
 char16_t text_buffer[kMaxChars + 1];
+int focused_text_box_id = -1;
+size_t active_max_chars = kMaxChars;
+// Keep the field that opened the dialog.  Re-querying the GUI focus after the
+// system dialog closes can return null (the dialog took focus), which used to
+// discard an otherwise valid result.
+GUIEngine::TextBoxWidget* active_text_box = nullptr;
 
-std::string to_utf8(const char16_t* text)
+GUIEngine::TextBoxWidget* focused_text_box()
 {
-    std::string out;
-    if (!text)
-        return out;
+    return dynamic_cast<GUIEngine::TextBoxWidget*>(
+        GUIEngine::getFocusForPlayer(0));
+}
 
-    for (size_t i = 0; i < kMaxChars && text[i] != 0; ++i)
+irr::gui::IGUIEditBox* focused_edit_box()
+{
+    GUIEngine::TextBoxWidget* text_box = focused_text_box();
+    return text_box ? text_box->getIrrlichtElement<irr::gui::IGUIEditBox>()
+                    : nullptr;
+}
+
+bool append_utf16(char16_t* out, size_t& length, size_t capacity,
+                  uint32_t cp)
+{
+    if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff))
+        cp = 0xfffd;
+
+    if (cp <= 0xffff)
     {
-        uint32_t cp = text[i];
+        if (length >= capacity)
+            return false;
+        out[length++] = static_cast<char16_t>(cp);
+        return true;
+    }
+
+    if (length + 2 > capacity)
+        return false;
+    cp -= 0x10000;
+    out[length++] = static_cast<char16_t>(0xd800 + (cp >> 10));
+    out[length++] = static_cast<char16_t>(0xdc00 + (cp & 0x3ff));
+    return true;
+}
+
+// Copy the focused field into the system IME before it opens, including a
+// password field, so the player can always go back and edit what is there.
+bool prepare_text_buffer()
+{
+    std::memset(text_buffer, 0, sizeof(text_buffer));
+    focused_text_box_id = -1;
+    active_text_box = nullptr;
+    active_max_chars = kMaxChars;
+
+    GUIEngine::TextBoxWidget* text_box = focused_text_box();
+    irr::gui::IGUIEditBox* edit_box = focused_edit_box();
+    if (!text_box || !edit_box)
+    {
+        ps4_boot_trace("port: IME no focused edit box");
+        return false;
+    }
+
+    active_text_box = text_box;
+    focused_text_box_id = text_box->getID();
+    const irr::u32 field_max = edit_box->getMax();
+    if (field_max > 0 && field_max < active_max_chars)
+        active_max_chars = field_max;
+
+    const irr::core::stringw current = edit_box->getText();
+    size_t length = 0;
+    for (size_t i = 0; i < current.size() && length < active_max_chars; ++i)
+    {
+        if (!append_utf16(text_buffer, length, active_max_chars,
+                          static_cast<uint32_t>(current[i])))
+            break;
+    }
+    text_buffer[length] = 0;
+    ps4_boot_tracef("port: IME prefilled %d UTF-16 units%s",
+                    static_cast<int>(length),
+                    edit_box->isPasswordBox() ? " (password)" : "");
+    return true;
+}
+
+// Replace the field's contents with the edited IME buffer.  The edit box's
+// Return handling will then fire onTextUpdated/onEnterPressed as usual.
+bool apply_text_buffer()
+{
+    GUIEngine::TextBoxWidget* text_box = active_text_box;
+    if (!text_box || text_box->getID() != focused_text_box_id)
+    {
+        ps4_boot_trace("port: IME field disappeared; result discarded");
+        return false;
+    }
+    irr::gui::IGUIEditBox* edit_box =
+        text_box->getIrrlichtElement<irr::gui::IGUIEditBox>();
+    if (!edit_box)
+    {
+        ps4_boot_trace("port: IME edit box disappeared; result discarded");
+        return false;
+    }
+
+    const irr::u32 field_max = edit_box->getMax();
+    std::wstring text;
+    for (size_t i = 0; i < kMaxChars && text_buffer[i] != 0; ++i)
+    {
+        uint32_t cp = text_buffer[i];
 
         // The IME can return a surrogate pair for characters outside the BMP.
         if (cp >= 0xd800 && cp <= 0xdbff)
         {
-            if (i + 1 < kMaxChars && text[i + 1] >= 0xdc00 && text[i + 1] <= 0xdfff)
+            if (i + 1 < kMaxChars && text_buffer[i + 1] >= 0xdc00 &&
+                text_buffer[i + 1] <= 0xdfff)
             {
-                cp = 0x10000 + ((cp - 0xd800) << 10) + (text[i + 1] - 0xdc00);
+                cp = 0x10000 + ((cp - 0xd800) << 10) +
+                     (text_buffer[i + 1] - 0xdc00);
                 ++i;
             }
             else
@@ -77,59 +182,19 @@ std::string to_utf8(const char16_t* text)
             cp = 0xfffd;
         }
 
-        char encoded[4];
-        size_t length = 0;
-        if (cp < 0x80)
-        {
-            encoded[0] = static_cast<char>(cp);
-            length = 1;
-        }
-        else if (cp < 0x800)
-        {
-            encoded[0] = static_cast<char>(0xc0 | (cp >> 6));
-            encoded[1] = static_cast<char>(0x80 | (cp & 0x3f));
-            length = 2;
-        }
-        else if (cp < 0x10000)
-        {
-            encoded[0] = static_cast<char>(0xe0 | (cp >> 12));
-            encoded[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
-            encoded[2] = static_cast<char>(0x80 | (cp & 0x3f));
-            length = 3;
-        }
-        else
-        {
-            encoded[0] = static_cast<char>(0xf0 | (cp >> 18));
-            encoded[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3f));
-            encoded[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
-            encoded[3] = static_cast<char>(0x80 | (cp & 0x3f));
-            length = 4;
-        }
-
-        if (out.size() + length > kMaxUtf8)
+        if (field_max > 0 && text.size() >= field_max)
             break;
-        out.append(encoded, length);
+        text.push_back(static_cast<wchar_t>(cp));
     }
-    return out;
-}
 
-void push_text(const std::string& text)
-{
-    if (text.empty())
-        return;
-
-    SDL_Event event;
-    SDL_zero(event);
-    event.type = SDL_TEXTINPUT;
-    event.text.timestamp = SDL_GetTicks();
-    event.text.windowID = 0;
-    std::memcpy(event.text.text, text.data(), text.size());
-    event.text.text[text.size()] = '\0';
-
-    if (SDL_PushEvent(&event) != 1)
-        ps4_boot_tracef("port: IME SDL_PushEvent -> \"%s\"", SDL_GetError());
-    else
-        ps4_boot_tracef("port: IME pushed \"%s\"", text.c_str());
+    // Replace, never append.  Using the widget also keeps its cached text in
+    // sync; the old SDL_TEXTINPUT path appended to whatever was already there,
+    // which made a hidden password field grow on every attempt.
+    text_box->setText(irr::core::stringw(text.c_str()));
+    ps4_boot_tracef("port: IME applied %d characters%s",
+                    static_cast<int>(text.size()),
+                    edit_box->isPasswordBox() ? " (password)" : "");
+    return true;
 }
 
 // Commit the field: the IME's own Enter button has no SDL key behind it.
@@ -163,6 +228,12 @@ void push_return()
 
 void open_dialog()
 {
+    if (!prepare_text_buffer())
+    {
+        open_requested.store(false);
+        return;
+    }
+
     // The IME library is not loaded by default. Calling sceImeDialogInit()
     // without it ends the app without a user-space signal or crash log.
     if (!module_loaded.load())
@@ -171,7 +242,11 @@ void open_dialog()
         ps4_boot_tracef("port: IME module load -> 0x%x",
                         static_cast<uint32_t>(load_result));
         if (load_result < 0)
+        {
+            focused_text_box_id = -1;
+            active_text_box = nullptr;
             return;
+        }
         module_loaded.store(true);
     }
 
@@ -185,7 +260,6 @@ void open_dialog()
         }
     }
 
-    std::memset(text_buffer, 0, sizeof(text_buffer));
     cancel_requested.store(false);
 
     OrbisImeDialogSetting setting = {};
@@ -195,11 +269,16 @@ void open_dialog()
     setting.enterLabel = ORBIS_BUTTON_LABEL_DEFAULT;
     setting.inputMethod = ORBIS__DEFAULT;
     setting.option = 0;
-    setting.maxTextLength = static_cast<uint32_t>(kMaxChars);
+    setting.maxTextLength = static_cast<uint32_t>(active_max_chars);
     // The header's wchar_t* fields carry SceWChar16 data on the console.
     setting.inputTextBuffer = reinterpret_cast<wchar_t*>(text_buffer);
     setting.horizontalAlignment = ORBIS_H_CENTER;
     setting.verticalAlignment = ORBIS_V_CENTER;
+    // posx/posy default to (0,0), which put the keyboard in the top-left
+    // corner, mostly offscreen. With centre alignment these are the
+    // anchor point, so use the middle of the 1920x1080 VideoOut surface.
+    setting.posx = kScreenWidth * 0.5f;
+    setting.posy = kScreenHeight * 0.5f;
     setting.placeholder = reinterpret_cast<const wchar_t*>(kPlaceholder);
     setting.title = reinterpret_cast<const wchar_t*>(kTitle);
 
@@ -213,6 +292,8 @@ void open_dialog()
     {
         dialog_active.store(false);
         open_requested.store(false);
+        focused_text_box_id = -1;
+        active_text_box = nullptr;
         return;
     }
 }
@@ -295,6 +376,8 @@ extern "C" void ps4_ime_poll(void)
         ps4_boot_trace("port: IME vanished (status NONE)");
         dialog_active.store(false);
         cancel_requested.store(false);
+        focused_text_box_id = -1;
+        active_text_box = nullptr;
         return;
     }
 
@@ -308,9 +391,11 @@ extern "C" void ps4_ime_poll(void)
                     static_cast<uint32_t>(get_result), static_cast<uint32_t>(term_result),
                     static_cast<int>(result.endstatus), cancelled ? 1 : 0);
 
-    if (!cancelled && get_result >= 0 && result.endstatus == ORBIS_DIALOG_OK)
+    if (!cancelled && get_result >= 0 && result.endstatus == ORBIS_DIALOG_OK &&
+        apply_text_buffer())
     {
-        push_text(to_utf8(text_buffer));
         push_return();
     }
+    focused_text_box_id = -1;
+    active_text_box = nullptr;
 }

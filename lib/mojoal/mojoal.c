@@ -2101,7 +2101,15 @@ static ALCcontext *_alcCreateContext(ALCdevice *device, const ALCint* attrlist)
 {
     ALCcontext *retval = NULL;
     ALCsizei attrcount = 0;
+#ifdef __PS4__
+    /* Mix at 44.1 kHz. Nearly all of STK's music and sfx are 44.1 kHz, so
+       they reach the mixer without a per-source SDL_AudioStream, which
+       allocates and resamples inside the audio callback. SDL then converts
+       the finished mix once, at the device boundary, to the 48 kHz port. */
+    ALCint freq = 44100;
+#else
     ALCint freq = 48000;
+#endif
     ALCboolean sync = ALC_FALSE;
     ALCint refresh = 100;
     /* we don't care about ALC_MONO_SOURCES or ALC_STEREO_SOURCES as we have no hardware limitation. */

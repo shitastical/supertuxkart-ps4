@@ -57,6 +57,13 @@ endforeach()
 # DISABLE_RPC path is the one the Switch build uses (empty update(), no socket, no thread); define
 # it here so STK's source stays untouched.
 target_compile_definitions(supertuxkart PRIVATE DISABLE_RPC)
+# Release builds use the compile-time /app0 data root. Only the eboot-only
+# development build opts into /data/stk. Keeping this out of a runtime
+# existence check means a release package can never read the developer's
+# external data tree, and uninstalling it removes the bundled assets.
+if(PS4_EXTERNAL_DATA)
+    target_compile_definitions(supertuxkart PRIVATE PS4_EXTERNAL_DATA=1)
+endif()
 # STK's Unix branch links ${FREETYPE_LIBRARIES}, which is empty with the
 # sysroot's CMake package (it exports Freetype::Freetype instead). Add the
 # archive explicitly; HarfBuzz's hb-ft glue needs these symbols.

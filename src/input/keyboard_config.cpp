@@ -50,6 +50,53 @@ void KeyboardConfig::save(std::ofstream& stream)
 }  // save
 
 //------------------------------------------------------------------------------
+/** Returns the control to display for an action.  The PS4 port has no
+ *  keyboard: the pad thread in ps4/ps4_input.cpp feeds DualShock 4 presses into
+ *  STK as SDL key events, so the keyboard configuration is the "latest used
+ *  device" that the tutorial, the help screens and the input options read.
+ *  Reporting the pad control that produces each action keeps every prompt a
+ *  controller prompt instead of the key name (Backspace, Return, Space...) the
+ *  player can never press. */
+irr::core::stringw KeyboardConfig::getBindingAsString(
+                                                 const PlayerAction action) const
+{
+#ifdef __PS4__
+    if (action >= 0 && action < PA_COUNT &&
+        m_bindings[action].getType() != Input::IT_NONE)
+    {
+        // Private-use codepoints backed by data/ttf/DS4Prompts.ttf (listed in
+        // the normal-ttf fallback chain of stk_config.xml). Drawing the real
+        // button keeps every prompt a controller prompt and tints it with the
+        // surrounding text colour.
+        switch (action)
+        {
+        case PA_ACCEL:       return L"\xE000";  // Cross
+        case PA_BRAKE:       return L"\xE001";  // Circle
+        // Steering is one physical control; both directions return the single
+        // left-stick glyph, so the tutorial names it once instead of printing
+        // the left and right stick icons next to each other.
+        case PA_STEER_LEFT:
+        case PA_STEER_RIGHT: return L"\xE009";  // left stick
+        case PA_FIRE:        return L"\xE007";  // R2
+        case PA_LOOK_BACK:   return L"\xE002";  // Square
+        case PA_DRIFT:       return L"\xE005";  // L2
+        case PA_NITRO:       return L"\xE004";  // L1
+        case PA_RESCUE:      return L"\xE003";  // Triangle
+        case PA_PAUSE_RACE:  return L"\xE008";  // Options
+        case PA_MENU_UP:     return L"d-pad up";
+        case PA_MENU_DOWN:   return L"d-pad down";
+        case PA_MENU_LEFT:   return L"d-pad left";
+        case PA_MENU_RIGHT:  return L"d-pad right";
+        case PA_MENU_SELECT: return L"\xE000";  // Cross
+        case PA_MENU_CANCEL: return L"\xE001";  // Circle
+        default:             break;
+        }
+    }
+#endif
+    return DeviceConfig::getBindingAsString(action);
+}   // getBindingAsString
+
+//------------------------------------------------------------------------------
 
 void KeyboardConfig::setDefaultBinds()
 {

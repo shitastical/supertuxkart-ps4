@@ -2,6 +2,7 @@ bld*/
 build*/
 cmake_build*/
 xcode_build*/
+out/
 dependencies*/
 CMakeFiles/
 stk-editor/
@@ -16,6 +17,7 @@ compile_commands.json
 supertuxkart-64
 make*.bat
 __pycache__
+ps4/__pycache__/
 
 data/editor
 data/karts

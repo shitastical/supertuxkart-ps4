@@ -90,7 +90,12 @@ private:
     std::atomic_bool m_playing;
     std::atomic_bool m_play_initialized;
 
-    ALuint m_soundBuffers[2];
+    /** Streaming buffers queued ahead of playback.  Each one holds a quarter
+     *  second of music; two of them leave only 0.5 s queued, so a hiccup in
+     *  the decoder or the mixer starves the source and the music stumbles.
+     *  Four give a full second of slack. */
+    static const unsigned int kStreamBuffers = 4;
+    ALuint m_soundBuffers[kStreamBuffers];
     ALuint m_soundSource;
     ALenum nb_channels;
 

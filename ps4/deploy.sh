@@ -4,9 +4,10 @@
 #   bash ps4/deploy.sh
 #   PS4_HOST=192.168.0.3 bash ps4/deploy.sh
 #
-# The package contains only the eboot (no assets): the game reads /data/stk/data,
-# which is uploaded once (see ps4/upload-data.py). Installing this package writes
-# ~60 MB instead of the full game image.
+# The package contains only the eboot (no assets): this build opts into
+# PS4_EXTERNAL_DATA and reads /data/stk/data, uploaded once (see
+# ps4/upload-data.py). Installing this package writes ~60 MB instead of the
+# full game image. The public release is built with PS4_EXTERNAL_DATA=OFF.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,9 +20,9 @@ HOST="${PS4_HOST:-192.168.0.3}"
 VERSION="${STK_VERSION:-00.01}"
 cd "$STK"
 echo "version: $VERSION"
-BUILD_DIR="$BUILD" bash ps4/build.sh
+PS4_EXTERNAL_DATA=ON BUILD_DIR="$BUILD" bash ps4/build.sh
 
-PKG="$(BUILD_DIR="$BUILD" STK_VERSION="$VERSION" NO_RIGHT_SPRX=1 STK_PKG_EBOOT_ONLY=1 \
+PKG="$(BUILD_DIR="$BUILD" STK_VERSION="$VERSION" STK_PKG_EBOOT_ONLY=1 \
         bash ps4/pkg.sh | tail -1)"
 [[ -f "$PKG" ]] || { echo "no package produced" >&2; exit 1; }
 

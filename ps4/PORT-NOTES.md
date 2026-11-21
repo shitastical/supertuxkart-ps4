@@ -117,13 +117,32 @@ cd /tmp/stk-ps4-build
 ninja bin/supertuxkart supertuxkart_eboot
 ```
 
-Package the executable only; assets live on the console once:
+Release package (self-contained, assets in `/app0/data`):
 
 ```sh
-cd "/home/leo/Desktop/SuperTuxKart PS4/stk-code"
-BUILD_DIR=/tmp/stk-ps4-build STK_VERSION=00.01 \
-  NO_RIGHT_SPRX=1 STK_PKG_EBOOT_ONLY=1 bash ps4/pkg.sh
+cd /path/to/stk-code    # may contain spaces; BUILD_DIR keeps the build elsewhere
+PS4_EXTERNAL_DATA=OFF BUILD_DIR="$HOME/stk-ps4-release" STK_VERSION=00.11 \
+  bash ps4/build.sh
+PS4_EXTERNAL_DATA=OFF BUILD_DIR="$HOME/stk-ps4-release" STK_VERSION=00.11 \
+  bash ps4/pkg.sh
 ```
+
+Development package (eboot only, assets in `/data/stk/data`):
+
+```sh
+PS4_EXTERNAL_DATA=ON BUILD_DIR="$HOME/stk-ps4-dev" STK_VERSION=00.01 \
+  bash ps4/build.sh
+BUILD_DIR="$HOME/stk-ps4-dev" STK_VERSION=00.01 STK_PKG_EBOOT_ONLY=1 \
+  bash ps4/pkg.sh
+```
+
+`pkg.sh` checks the build cache: it rejects a full package built with
+external data and an eboot-only package built without it. Both package types
+include `sce_sys/about/right.sprx`; a fresh console can refuse a package that
+omits it. A full package also fails rather than shipping with no `tracks/`.
+The release binary pins `SUPERTUXKART_DATADIR=/app0`, so STK's
+working-directory probes cannot pick up a `/data/stk` tree on a console that
+has one; the dev binary pins `/data/stk`.
 
 Upload and verify the size before installing:
 
@@ -136,9 +155,12 @@ curl -sS -I ftp://192.168.0.3:2121/data/pkg/IV0000-STKR00001_00-STKPORT000000000
 
 Install from `/data/pkg` with the XMB package installer (uninstall the old
 `STKR00001` first; the installer refuses an already-installed content ID).
-The game reads assets from `/data/stk/data` and config from
-`/data/stk/config-0.10/config.xml`; the default renderer is Vulkan,
-`max_fps=120`, `swap-interval-vsync=1`.
+The release reads assets from `/app0/data` and reads/writes config in
+`/data/stk/config-0.10/config.xml`; the development build reads assets from
+`/data/stk/data`. The default renderer is Vulkan, `max_fps=120`,
+`swap-interval-vsync=1`. Uninstall removes the `/app0` assets; the saves and
+shader cache in `/data/stk` remain, because the package format has no
+uninstall hook for that writable directory.
 
 ## 4. Logs: what to pull and what to read first
 
@@ -197,7 +219,7 @@ run's timestamps before believing it.
 - **Keep the last known-good package.** Each iteration replaces the installed
   app; knowing the previous hash/size is what makes a rollback possible.
 
-## 7. Known issues and next levers
+## 7. Next levers and implementation notes
 
 - **Fixed pipeline.** STK logs
   `[warn] irr_driver: Using the fixed pipeline (old GPU, or shaders disabled
@@ -211,8 +233,54 @@ run's timestamps before believing it.
   times is contention, not a crash. It did not break the playable build, but
   it is the next thing to look at for loading hitches (raise the arena count
   or reduce the lock hold time in ps4-kit's heap).
-- **Audio.** MojoAL→SDL→SceAudioOut is linked; the pad drives the menus and
-  the tutorial. Audio was not separately verified in the playable run.
+- **Audio path (resolved).** MojoAL→SDL→SceAudioOut is linked and decoding.
+  The SDL PS4 backend uses a 1024-frame (21 ms) buffer. MojoAL mixes at
+  44.1 kHz (`lib/mojoal/mojoal.c`), the rate of nearly all music and sfx, so
+  those sources reach the mixer without a per-source `SDL_AudioStream` that
+  allocates and resamples inside the audio callback; SDL converts the finished
+  mix once at the 48 kHz device boundary. The music stream queues four
+  quarter-second buffers instead of two (`src/audio/music_ogg.*`), so a slow
+  decode cannot starve the source and restart it mid-buffer. The old slowdown
+  and crackle are no longer reproducible in the current build.
+- **Control prompts (2026-11-20).** STK worded its prompts from the keyboard
+  config because that is the device the pad thread drives. `KeyboardConfig::
+  getBindingAsString` now has a `__PS4__` branch that returns the pad control
+  for every action, so the tutorial, the input options and the spectate hints
+  name the pad instead of Up/Space/Backspace/Return. The "press a key" dialog
+  and the input-screen help line are reworded on PS4 the same way.
+- **Button icons in prompts (2026-11-20).** The prompts draw the real pad
+  control instead of words: `data/ttf/DS4Prompts.ttf` maps U+E000–U+E009 to
+  Cross, Circle, Square, Triangle, L1, L2, R1, R2, Options and the left
+  stick. The face
+  buttons are the pack's discs with the symbol knocked out; the shoulders are
+  keycaps whose letters are solid, because the pack's label was only about
+  4 px tall at prompt size and disappeared. The font is appended to the
+  `normal-ttf` fallback list in both `stk_config.xml` copies, and the `__PS4__`
+  branch returns those codepoints, so the glyph is tinted with the prompt text
+  and needs no per-widget image. Steering is one control, so both directions
+  return the single left-stick disc (U+E009); printing a left-stick-left
+  and a left-stick-right icon side by side said the same thing twice. The tutorial strings lost their literal `<%s>`
+  brackets (they wrapped the icon) and the steering sentence mentions the
+  stick once; the network spectate hint lost the same brackets.
+  `stk_config.xml` loads the font through STK's normal asset lookup, so the
+  release package carries it in `/app0/data/ttf/` and the dev tree in
+  `/data/stk/data/ttf/`.
+- **First-run login (2026-11-20).** With no local profile yet, backing out of
+  the account login screen popped the login and the player-creation screen
+  below it, which empties the menu stack and aborts the game. On PS4 that
+  branch now pops only the login screen, so Circle returns to player creation
+  and the application stays up; it is closed with PS > Close Application.
+- **Controls (2026-11-20b).** The pad layout is now Mario Kart 8 Deluxe's:
+  Cross accelerates, Circle brakes/reverses, the left stick steers, R2 fires,
+  L2 drifts, L1 nitros, Square looks back, Triangle rescues, Options pauses.
+  Pushing the stick forward no longer accelerates; only Cross does, and the
+  stick is steering only. Prompts follow the same table.
+- **Text input (2026-11-21).** The PS4 IME now pre-fills every focused text
+  box, including passwords, and writes the accepted result back with
+  `setText` so it replaces the old value instead of appending. The focused
+  widget is cached while the system dialog is open, so losing GUI focus no
+  longer discards the result. Password fields use a centred bullet mask on
+  PS4; the asterisk was not visible in the single-line edit box.
 - **Profiling.** The marker file was removed because it enabled a sampler that
   never wrote output. If profiling is needed again, add the writer first, then
   the marker.

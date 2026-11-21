@@ -201,13 +201,23 @@ __attribute__((constructor(210))) static void ps4_trace_start() {
     // the variable directly.
     SDL_SetHint(SDL_HINT_VIDEODRIVER, "dummy");
     setenv("SDL_VIDEODRIVER", "dummy", 1);
-    // Assets are installed in /data (uploaded once over FTP) instead of inside the package, so a
-    // code iteration installs a small eboot-only package instead of the multi-hundred-megabyte
-    // data image. FileManager reads this variable before the compile-time default.
-    setenv("SUPERTUXKART_DATADIR", "/data/stk", 1);
+    // This must be a build-time choice, not a runtime existence check: a release package has its
+    // assets in /app0/data and must never read a developer's /data/stk tree, while an eboot-only
+    // development package has no /app0/data and reads the uploaded /data/stk/data. PS4_EXTERNAL_DATA
+    // is set only by the dev build (ps4/deploy.sh).
+#ifdef PS4_EXTERNAL_DATA
+    const char* const data_root = "/data/stk";
+#else
+    const char* const data_root = "/app0";
+#endif
+    // Pin the root even for the release, where it matches STK's compile-time default: without the
+    // variable FileManager probes ./data, ../data, ../../data and the executable's ../data relative
+    // to the launcher's working directory before falling back. A release launched from a directory
+    // that happens to contain a developer tree could otherwise load /data/stk instead of /app0.
+    setenv("SUPERTUXKART_DATADIR", data_root, 1);
     // Without this, FileManager falls back to $HOME/.config (unwritable on the console), so the
     // player profile, users.xml/players.xml and stdout.log were never persisted. /data/stk is
-    // writable and survives an uninstall, same as the assets.
+    // writable and survives an uninstall; the bundled game assets in /app0 do not.
     setenv("SUPERTUXKART_SAVEDIR", "/data/stk", 1);
     // RADV's shader/pipeline disk cache is compiled in (the kit's gpu/mesa-patches 0023-0025 make
     // it work on the PS4), but Mesa only enables it when a folder is named: otherwise it looks for
@@ -217,8 +227,8 @@ __attribute__((constructor(210))) static void ps4_trace_start() {
     // frame loop while a race loaded. /data/stk survives a package reinstall like the assets.
     mkdir("/data/stk/cache", 0777);
     setenv("MESA_SHADER_CACHE_DIR", "/data/stk/cache", 1);
-    milestone("port: video driver dummy, data root /data/stk, save dir /data/stk, "
-              "RADV shader cache /data/stk/cache");
+    milestone("port: video driver dummy, data root %s, save dir /data/stk, "
+              "RADV shader cache /data/stk/cache", data_root);
     // Either the environment or a marker file on the data partition switches the dump on, so a
     // console with no shell (this port has only FTP and klog) can ask for stack dumps between
     // installs: create /data/stk/watchdog-on and relaunch.

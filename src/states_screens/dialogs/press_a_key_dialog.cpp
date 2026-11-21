@@ -41,7 +41,11 @@ PressAKeyDialog::PressAKeyDialog(const float w, const float h, const bool isKeyb
     if(isKeyboardFlag)
     {
         // I18N: In press a key dialog, tell user to press a key to bind configuration
+#ifdef __PS4__
+        title->setText(_("Press any button...\n(Press Circle to cancel)"));
+#else
         title->setText(_("Press any key...\n(Press ESC to cancel)"));
+#endif
     }
     else
     {

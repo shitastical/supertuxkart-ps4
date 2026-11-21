@@ -43,6 +43,12 @@ endif()
 # Set as cache entries before STK's option() calls: option() leaves an
 # existing cache entry alone, so these become the PS4 defaults.
 set(PS4_PORT              ON  CACHE BOOL "" FORCE)
+# Release packages carry the assets in /app0/data. Eboot-only development
+# packages read /data/stk/data instead, so a code change does not rewrite the
+# multi-hundred-megabyte data image. This is a build-time choice: a release
+# binary must not silently fall back to /data/stk just because that directory
+# happens to exist on the console.
+option(PS4_EXTERNAL_DATA "Read game data from /data/stk (eboot-only dev builds)" OFF)
 set(USE_GLES2             OFF CACHE BOOL "" FORCE) # Vulkan is the renderer here
 set(BUILD_RECORDER        OFF CACHE BOOL "" FORCE) # needs libopenglrecorder + GL
 set(USE_WIIUSE            OFF CACHE BOOL "" FORCE) # needs BlueZ
@@ -59,6 +65,8 @@ set(CHECK_ASSETS          OFF CACHE BOOL "" FORCE) # assets are staged, not in t
 # pkg.sh stages data at /app0/data. Defining STK_INSTALL_DATA_DIR here makes
 # STK emit SUPERTUXKART_DATADIR="/app0" itself instead of the default
 # /usr/local/share/supertuxkart (and avoids a duplicate macro definition).
+# PS4_EXTERNAL_DATA=ON is only for the eboot-only development package; see
+# ps4_trace.cpp.
 set(STK_INSTALL_DATA_DIR  "/app0" CACHE STRING "" FORCE)
 set(SERVER_ONLY           OFF CACHE BOOL "" FORCE)
 

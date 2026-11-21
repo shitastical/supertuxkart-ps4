@@ -32,7 +32,8 @@
 MusicOggStream::MusicOggStream(float loop_start, float loop_end)
 {
     //m_oggStream= NULL;
-    m_soundBuffers[0] = m_soundBuffers[1]= 0;
+    for (unsigned int i = 0; i < kStreamBuffers; ++i)
+        m_soundBuffers[i] = 0;
     m_soundSource     = -1;
     m_pausedMusic     = true;
     m_playing.store(false);
@@ -142,7 +143,7 @@ bool MusicOggStream::load(const std::string& filename)
     }
 #endif
 
-    alGenBuffers(2, m_soundBuffers);
+    alGenBuffers((ALsizei)kStreamBuffers, m_soundBuffers);
     if (check("alGenBuffers") == false) return false;
 
     alGenSources(1, &m_soundSource);
@@ -191,7 +192,7 @@ bool MusicOggStream::release()
     empty();
     alDeleteSources(1, &m_soundSource);
     check("alDeleteSources");
-    alDeleteBuffers(2, m_soundBuffers);
+    alDeleteBuffers((ALsizei)kStreamBuffers, m_soundBuffers);
     check("alDeleteBuffers");
 
     // Handle error correctly
@@ -226,13 +227,17 @@ bool MusicOggStream::playMusic()
     if(isPlaying())
         return true;
 
-    if(!streamIntoBuffer(m_soundBuffers[0]))
-        return false;
+    // Fill the whole queue before the first play: the source then has a
+    // second of music in hand, so a slow decode cannot make it under-run and
+    // restart mid-buffer (which repeats audio and drags the music behind).
+    for (unsigned int i = 0; i < kStreamBuffers; ++i)
+    {
+        if (!streamIntoBuffer(m_soundBuffers[i]))
+            return false;
+    }
 
-    if(!streamIntoBuffer(m_soundBuffers[1]))
-        return false;
-
-    alSourceQueueBuffers(m_soundSource, 2, m_soundBuffers);
+    alSourceQueueBuffers(m_soundSource, (ALsizei)kStreamBuffers,
+                         m_soundBuffers);
 
     alSourcePlay(m_soundSource);
     m_pausedMusic = false;
