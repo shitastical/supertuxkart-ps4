@@ -137,11 +137,14 @@ the DualShock 4 glyphs in `data/ttf/DS4Prompts.ttf`.
 
 ## Known issues
 
-- Split-screen controller detection has been reworked to open each signed-in
-  user's own controller. The previous build looked for player 2 at the wrong
-  ScePad index, so a second user's pad was never opened. This still needs
-  confirmation on retail hardware. Sign the second controller in to a second
-  PS4 user or guest, then press Cross on it at kart selection.
+- Split-screen controller detection is still being fixed on retail hardware.
+  The port now opens exactly one standard ScePad per signed-in user at index
+  0, which is how the PS4 assigns local players. The previous build also
+  probed indices 1-3; that could return a handle that never reported a second
+  physical pad and then occupied player 2's slot before the second user signed
+  in. Sign the second controller in to a second PS4 user or guest, then press
+  Cross on it at kart selection. If it still does not join, the login-user
+  list and a build timestamp are written to `/data/ps4-kit/boot-trace.log`.
 - Online multiplayer has not been tested yet.
 - Do not change the controls or graphics settings. Those options have not been
   tested on PS4, and changing them may cause issues.

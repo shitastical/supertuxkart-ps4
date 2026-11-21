@@ -1,11 +1,12 @@
 // SuperTuxKart PS4: DualShock 4 controllers as STK gamepad devices.
 //
 // SDL2 on PS4 is built with the null video/event driver, so there is no SDL
-// controller hotplug.  A small thread polls ScePad for every controller slot
-// and queues the same events the SDL controller backend would send.  STK sees
-// real gamepads instead of one keyboard, so a second controller is a distinct
-// input device and can join a split-screen race.  The stick is analog in a
-// race; in menus it is treated as a full direction so navigation stays quick.
+// controller hotplug.  ScePad gives every signed-in user one standard pad at
+// index 0; a small thread opens one handle per user and queues the same events
+// the SDL controller backend would send.  STK sees real gamepads instead of
+// one keyboard, so a second controller is a distinct input device and can join
+// a split-screen race.  The stick is analog in a race; in menus it is treated
+// as a full direction so navigation stays quick.
 //
 // Racing layout (Mario Kart 8 Deluxe style):
 //   Cross accelerate, Circle brake/reverse, left stick or D-pad steer
@@ -82,7 +83,6 @@ struct PadState
 
     // Only the input thread touches these.
     int32_t user = -1;
-    int sce_index = -1;
     bool have_previous = false;
     bool previous_buttons[PS4_BUTTON_COUNT] = {};
     int previous_x = 0;
@@ -162,24 +162,60 @@ std::vector<int32_t> login_users()
     std::vector<int32_t> users;
 
     int32_t initial_user = -1;
-    if (sceUserServiceGetInitialUser(&initial_user) >= 0)
+    const int32_t initial_result =
+        sceUserServiceGetInitialUser(&initial_user);
+    if (initial_result >= 0)
         add_login_user(users, initial_user);
 
-    // Every logged-in user owns a standard pad at index 0.  This is the
-    // important case for split-screen: the second user's controller is NOT
-    // at index 1 of the first user.
+    // Every signed-in user owns one standard pad at index 0.  The second
+    // player's controller is NOT at index 1 of the first user, so the opener
+    // must never invent extra indices to fill a slot.
     OrbisUserServiceLoginUserIdList user_list = {};
-    if (sceUserServiceGetLoginUserIdList(&user_list) >= 0)
+    const int32_t list_result =
+        sceUserServiceGetLoginUserIdList(&user_list);
+    if (list_result >= 0)
     {
         for (int i = 0; i < ORBIS_USER_SERVICE_MAX_LOGIN_USERS; ++i)
             add_login_user(users, user_list.userId[i]);
     }
 
+    int32_t foreground_result = 0;
     if (users.empty())
     {
         int32_t foreground_user = -1;
-        if (sceUserServiceGetForegroundUser(&foreground_user) >= 0)
+        foreground_result = sceUserServiceGetForegroundUser(&foreground_user);
+        if (foreground_result >= 0)
             add_login_user(users, foreground_user);
+    }
+
+    // The thread retries every second; report only changes (and failures),
+    // so boot-trace.log shows when the second user signs in.
+    static std::vector<int32_t> traced_users;
+    static int32_t traced_results[3] = {-2, -2, -2};
+    const int32_t results[3] = {initial_result, list_result,
+                                foreground_result};
+    if (users != traced_users ||
+        results[0] != traced_results[0] ||
+        results[1] != traced_results[1] ||
+        results[2] != traced_results[2])
+    {
+        std::string list;
+        for (int32_t user : users)
+        {
+            if (!list.empty())
+                list += ", ";
+            list += std::to_string(user);
+        }
+        ps4_boot_tracef(
+            "port: login users (%zu): %s (initial 0x%08x list 0x%08x "
+            "foreground 0x%08x)",
+            users.size(), list.empty() ? "none" : list.c_str(),
+            static_cast<uint32_t>(initial_result),
+            static_cast<uint32_t>(list_result),
+            static_cast<uint32_t>(foreground_result));
+        traced_users = users;
+        for (int i = 0; i < 3; ++i)
+            traced_results[i] = results[i];
     }
 
     return users;
@@ -188,32 +224,28 @@ std::vector<int32_t> login_users()
 struct PadCandidate
 {
     int32_t user;
-    int index;
 };
 
 std::vector<PadCandidate> pad_candidates(const std::vector<int32_t>& users)
 {
     std::vector<PadCandidate> candidates;
 
-    // First give every signed-in user their index-0 pad.  Only then try the
-    // extra indices, which cover several pads assigned to one user.
+    // ScePad routes one standard controller per signed-in user at index 0.
+    // The index argument is not a "second controller" selector.  Probing
+    // indices 1-3 can hand back a handle that never reports a physical pad;
+    // that empty slot then blocks the second user's real pad when it appears.
     for (int32_t user : users)
-        candidates.push_back({user, 0});
-    for (int32_t user : users)
-    {
-        for (int index = 1; index < kPadCount; ++index)
-            candidates.push_back({user, index});
-    }
+        candidates.push_back({user});
     return candidates;
 }   // pad_candidates
 
-bool candidate_in_use(int slot, int32_t user, int index)
+bool candidate_in_use(int slot, int32_t user)
 {
     for (int i = 0; i < kPadCount; ++i)
     {
         if (i == slot || pads[i].handle.load() < 0)
             continue;
-        if (pads[i].user == user && pads[i].sce_index == index)
+        if (pads[i].user == user)
             return true;
     }
     return false;
@@ -229,20 +261,36 @@ bool handle_in_use(int slot, int32_t handle)
     return false;
 }   // handle_in_use
 
-void trace_open_failure(int slot, int32_t user, int index, int32_t result)
+void trace_open_failure(int slot, int32_t user, int32_t result)
 {
     // The input thread retries every second; report each distinct failure
     // once instead of filling the boot trace.
     char key[64];
-    std::snprintf(key, sizeof key, "%d/%d/%08x", user, index,
+    std::snprintf(key, sizeof key, "%d/%d/%08x", slot, user,
                   static_cast<uint32_t>(result));
     static std::vector<std::string> reported;
     if (std::find(reported.begin(), reported.end(), key) != reported.end())
         return;
     reported.push_back(key);
-    ps4_boot_tracef("port: slot %d: scePadOpen user %d index %d failed 0x%08x",
-                    slot, user, index, static_cast<uint32_t>(result));
+    ps4_boot_tracef("port: slot %d: scePadOpen user %d failed 0x%08x",
+                    slot, user, static_cast<uint32_t>(result));
 }   // trace_open_failure
+
+void trace_read_failure(int slot, int32_t handle, int32_t result,
+                        bool connected)
+{
+    char key[80];
+    std::snprintf(key, sizeof key, "%d/%d/%08x/%d", slot, handle,
+                  static_cast<uint32_t>(result), connected ? 1 : 0);
+    static std::vector<std::string> reported;
+    if (std::find(reported.begin(), reported.end(), key) != reported.end())
+        return;
+    reported.push_back(key);
+    ps4_boot_tracef(
+        "port: slot %d: scePadReadState handle %d failed 0x%08x "
+        "connected %d",
+        slot, handle, static_cast<uint32_t>(result), connected ? 1 : 0);
+}   // trace_read_failure
 
 bool open_pad(int slot, uint32_t now)
 {
@@ -254,40 +302,27 @@ bool open_pad(int slot, uint32_t now)
     pad.next_open_ms = now + 1000;
 
     const std::vector<int32_t> users = login_users();
-    static std::vector<int32_t> traced_users;
-    if (users != traced_users)
-    {
-        std::string list;
-        for (int32_t user : users)
-        {
-            if (!list.empty())
-                list += ", ";
-            list += std::to_string(user);
-        }
-        ps4_boot_tracef("port: login users (%zu): %s", users.size(),
-                        list.empty() ? "none" : list.c_str());
-        traced_users = users;
-    }
-
     const std::vector<PadCandidate> candidates = pad_candidates(users);
     for (const PadCandidate& candidate : candidates)
     {
-        if (candidate_in_use(slot, candidate.user, candidate.index))
+        if (candidate_in_use(slot, candidate.user))
             continue;
 
-        int32_t handle = scePadOpen(candidate.user, 0, candidate.index,
-                                    nullptr);
+        // Standard pad, index 0, for this signed-in user.  Do not probe other
+        // indices: a non-reporting handle would take this slot before the
+        // second user signs in.
+        int32_t handle = scePadOpen(candidate.user, 0, 0, nullptr);
         bool adopted = false;
         if (static_cast<uint32_t>(handle) == ORBIS_PAD_ERROR_ALREADY_OPENED)
         {
-            // A different part of the app (or a previous slot) may already
-            // own this pad.  Use its handle instead of failing forever.
-            handle = scePadGetHandle(candidate.user, 0, candidate.index);
+            // Another part of the app may already own this pad.  Use its
+            // handle instead of failing forever.
+            handle = scePadGetHandle(candidate.user, 0, 0);
             adopted = handle >= 0;
         }
         if (handle < 0)
         {
-            trace_open_failure(slot, candidate.user, candidate.index, handle);
+            trace_open_failure(slot, candidate.user, handle);
             continue;
         }
         if (handle_in_use(slot, handle))
@@ -300,12 +335,11 @@ bool open_pad(int slot, uint32_t now)
 
         pad.handle.store(handle);
         pad.user = candidate.user;
-        pad.sce_index = candidate.index;
         pad.read_ok.store(false);
         pad.have_previous = false;
         pad.cross_suppressed = false;
-        ps4_boot_tracef("port: slot %d <- ScePad user %d index %d handle %d",
-                        slot, candidate.user, candidate.index, handle);
+        ps4_boot_tracef("port: slot %d <- ScePad user %d handle %d", slot,
+                        candidate.user, handle);
         return true;
     }
 
@@ -319,7 +353,6 @@ void disconnect_pad(int index)
     const int32_t handle = pad.handle.exchange(-1);
     pad.read_ok.store(false);
     pad.user = -1;
-    pad.sce_index = -1;
     pad.next_open_ms = SDL_GetTicks() + 1000;
     if (handle >= 0)
         scePadClose(handle);
@@ -426,9 +459,13 @@ int stick_axis(uint8_t raw, bool negative_button, bool positive_button,
 
 void input_thread()
 {
-    sceUserServiceInitialize(nullptr);
-    scePadInit();
-    ps4_boot_trace("port: pad thread started (SceUserService/ScePad initialised)");
+    const int32_t user_result = sceUserServiceInitialize(nullptr);
+    const int32_t pad_result = scePadInit();
+    ps4_boot_tracef(
+        "port: pad thread started (user service 0x%08x pad 0x%08x build "
+        __DATE__ " " __TIME__ ")",
+        static_cast<uint32_t>(user_result),
+        static_cast<uint32_t>(pad_result));
 
     bool ime_paused = false;
     bool mode_known = false;
@@ -486,9 +523,12 @@ void input_thread()
 
             OrbisPadData data = {};
             const int32_t handle = pad.handle.load();
-            if (handle < 0 || scePadReadState(handle, &data) != 0 ||
-                !data.connected)
+            const int32_t read_result =
+                handle < 0 ? -1 : scePadReadState(handle, &data);
+            if (handle < 0 || read_result != 0 || !data.connected)
             {
+                trace_read_failure(index, handle, read_result,
+                                   data.connected);
                 pad.read_ok.store(false);
                 disconnect_pad(index);
                 continue;
