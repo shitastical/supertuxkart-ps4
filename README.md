@@ -69,6 +69,7 @@ The following was verified on hardware with the v0.11.0 package on the test cons
 | Split-screen | Two-player split-screen works with two signed-in users and two DualShock 4 controllers. Both players can race. |
 | Driving input | Analog steering and acceleration, face and shoulder buttons, sticks, and menu navigation work on the tested paths. |
 | Audio | Audio output works on the tested paths. Earlier music slowdown and crackling were addressed in the port. |
+| Audio settings | Changing audio settings works; the new values take effect. |
 | Curated add-ons | The in-game Add-ons menu reached the catalogue, downloaded an add-on, installed it, and launched it. Tested with an Among Us kart, including racing with it. |
 | Manual add-ons | Manual import of a third-party kart archive (`example_kart.zip`) worked: it was imported at startup, appeared in the game, and raced. |
 | Saves | Profiles, settings, and saves persist across launches in `/data/stk`. |
@@ -384,7 +385,7 @@ This is the consolidated list. Each item is also covered where relevant above.
 
 - **Changing controls settings is untested.** Use the default controls.
 - **Changing graphics settings is untested.** Do not change resolution, refresh rate, visual presets, or individual effects. Leave graphics settings alone for now. The settings screens may open, but applying and persisting changes is not part of the verified configuration. This is "untested", not "known broken".
-- Audio settings are untested.
+- **Audio settings work.** Changing them was tested on the port; the new values take effect.
 
 ### Hardware and platform
 
@@ -566,7 +567,7 @@ Short summary. Details are in the port documents linked below.
 
 **Shader cache.** The port uses a RADV shader and pipeline cache in `/data/stk/cache`, created at startup. Earlier builds recompiled shaders every launch and stalled; later launches reuse the cache.
 
-**Audio.** SDL audio with SuperTuxKart's 44.1 kHz mix, a 48 kHz device path, and small buffers. Audio worked on the tested paths. Surround output, other output devices, and audio settings are not claimed.
+**Audio.** SDL audio with SuperTuxKart's 44.1 kHz mix, a 48 kHz device path, and small buffers. Audio worked on the tested paths, and changing the audio settings was tested and takes effect. Surround output and other output devices are not claimed.
 
 **Input.** The PS4 pad API feeds SuperTuxKart's input manager. The port tracks signed-in users, opens a pad per user, retries failed opens, and releases a pad when its user signs out. It suppresses the first-frame Cross press on the race screen so confirming a kart does not accelerate or fire an item. Pads pause while the system keyboard is open. The input layer has four pad slots, but only two players were tested.
 

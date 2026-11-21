@@ -119,7 +119,7 @@ FTP upload or development data tree is needed.
 - Local races and packaged tracks.
 - Two-player split-screen with two signed-in users and two controllers.
 - Analog steering, face buttons and shoulder buttons.
-- Audio output.
+- Audio output, including changing the audio settings.
 - In-game **Add-ons** catalogue: Among Us downloaded, installed, loaded and
   raced.
 - Manual add-on import: `example_kart.zip` imported, appeared under
