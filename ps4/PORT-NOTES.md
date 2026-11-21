@@ -275,17 +275,24 @@ run's timestamps before believing it.
   L2 drifts, L1 nitros, Square looks back, Triangle rescues, Options pauses.
   Pushing the stick forward no longer accelerates; only Cross does, and the
   stick is steering only. Prompts follow the same table.
-- **PS4 gamepads and split-screen (2026-11-20c).** The old pad thread emulated
-  one keyboard, so every controller collapsed into player 1. It now opens four
-  ScePad slots, tries all logged-in users, and queues native gamepad events for
-  dispatch on the main thread. Each pad is registered as a separate
-  `GamePadDevice` with a stable non-SDL irrlicht ID. STK therefore sees real
-  controllers, the left stick steers with analog values in a race, and
-  `DETECT_NEW` can assign a second pad to split-screen. Menus still use full
-  stick deflection for quick navigation. The IME path is preserved: Cross on a
-  focused text field opens the system keyboard and that press is suppressed so
-  it cannot also select the widget behind the dialog. The split-screen prompt
-  is just `Press [Cross] to join the game`.
+- **PS4 gamepads and split-screen (2026-11-20d).** The old pad thread emulated
+  one keyboard, so every controller collapsed into player 1. It now polls
+  ScePad and queues native gamepad events for dispatch on the main thread;
+  each pad is registered as a separate `GamePadDevice` with a stable non-SDL
+  irrlicht ID. The first split-screen build paired logical slot N with ScePad
+  index N, so slot 1 asked the first user for a second pad at index 1. A second
+  signed-in user's standard controller is index 0 for that user, so it was
+  never opened. The opener now tries every logged-in user's index-0 pad first,
+  then the extra indices, and adopts an already-open handle through
+  `scePadGetHandle` instead of failing forever. Registration waits for a
+  successful `scePadReadState` with `data.connected` set, so an empty slot
+  cannot become a phantom controller; the login list and open/read outcomes
+  are written to `boot-trace.log`. The left stick steers with analog values in
+  a race, and `DETECT_NEW` can assign a second pad to split-screen. Menus still
+  use full stick deflection for quick navigation. The IME path is preserved:
+  Cross on a focused text field opens the system keyboard and that press is
+  suppressed so it cannot also select the widget behind the dialog. The
+  split-screen prompt is just `Press [Cross] to join the game`.
 - **Text input (2026-11-21).** The PS4 IME now pre-fills every focused text
   box, including passwords, and writes the accepted result back with
   `setText` so it replaces the old value instead of appending. The focused

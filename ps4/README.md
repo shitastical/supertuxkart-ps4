@@ -123,8 +123,11 @@ visible.
 
 ## Known issues
 
-- Split-screen controller detection is implemented but has not been confirmed
-  on retail hardware yet. If a second player cannot join, please report it.
+- Split-screen controller detection has been reworked to open each signed-in
+  user's own controller. The previous build looked for player 2 at the wrong
+  ScePad index, so a second user's pad was never opened. This still needs
+  confirmation on retail hardware. Sign the second controller in to a second
+  PS4 user or guest, then press Cross on it at kart selection.
 - Online multiplayer has not been tested yet.
 - Do not change the controls or graphics settings. Those options have not been
   tested on PS4, and changing them may cause issues.
