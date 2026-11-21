@@ -126,6 +126,8 @@ FTP upload or development data tree is needed.
   **Installed mods**, and raced.
 - Saves, profiles and settings persisted in `/data/stk` across reinstalling
   the application.
+- In-game benchmark on the tested PS4 slim at default settings: 31 FPS steady
+  and 42 FPS typical.
 
 ## Implemented but not independently verified
 
@@ -211,7 +213,8 @@ Limits:
   them; the release is only verified with the default mapping and default
   graphics.
 - Online multiplayer is untested.
-- Only a PS4 slim on firmware 13.52 was tested.
+- Only a PS4 slim on firmware 13.52 was tested. PS4 Pro performance is
+  untested; 60 FPS there is an expectation, not a measurement.
 - The game and every track/kart combination were not exhaustively tested.
 - Track/arena/soccer-field import has no separate hardware test yet.
 - The local date display fix was not independently re-checked on screen.

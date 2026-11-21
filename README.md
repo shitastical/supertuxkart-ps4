@@ -77,6 +77,10 @@ The following was verified on hardware with the v0.11.0 package on the test cons
 
 This list is deliberately narrow. It does not mean every mode, track, kart, or add-on works. No track compatibility matrix exists.
 
+### Performance
+
+On the tested PS4 slim at the release's default settings, the in-game benchmark reports **31 FPS steady** and **42 FPS typical**. These are the only measured numbers. A PS4 Pro was not tested; 60 FPS there is a reasonable expectation but is not verified.
+
 ---
 
 ## Tested configuration
@@ -104,7 +108,6 @@ This list is deliberately narrow. It does not mean every mode, track, kart, or a
 - Keyboard, mouse, wheels, flight sticks, third-party controllers
 - Online and LAN multiplayer
 - Long-session stability
-- Frame rate. No benchmark was run.
 
 If your console or firmware differs from the tested one, treat the port as untested on your setup.
 
@@ -392,7 +395,7 @@ This is the consolidated list. Each item is also covered where relevant above.
 - One console and firmware combination was tested: PS4 slim, firmware 13.52.
 - Output was tested at 1920x1080 only. 4K, HDR, variable refresh, and other modes are not tested.
 - Suspend/resume, rest mode, Remote Play, and external HDD installs are not tested.
-- No frame-rate benchmark was run. Do not read this README as a performance claim.
+- The benchmark result (31 FPS steady, 42 FPS typical) is from one PS4 slim at default settings. It is not a guarantee for other consoles, firmware, or settings.
 - Long-session stability is untested.
 
 ### Gameplay
@@ -567,7 +570,7 @@ Other options (bundled `enet`, `squish`, `mcqp`, and `sqlite3`, Discord RPC disa
 
 Short summary. Details are in the port documents linked below.
 
-**Graphics.** SuperTuxKart's Vulkan renderer runs through a PS4 SDL2 Vulkan window-system layer and the console's VideoOut. The surface is 1920x1080. OpenGL ES and software rendering are not used. No claim is made about 4K, HDR, variable refresh, selectable resolutions, visual presets, or frame rate.
+**Graphics.** SuperTuxKart's Vulkan renderer runs through a PS4 SDL2 Vulkan window-system layer and the console's VideoOut. The surface is 1920x1080. OpenGL ES and software rendering are not used. No claim is made about 4K, HDR, variable refresh, selectable resolutions, or visual presets. See [Performance](#performance) for the one measured frame-rate result.
 
 **Shader cache.** The port uses a RADV shader and pipeline cache in `/data/stk/cache`, created at startup. Earlier builds recompiled shaders every launch and stalled; later launches reuse the cache.
 
