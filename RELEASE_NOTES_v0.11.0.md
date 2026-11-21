@@ -6,6 +6,78 @@ v0.11.0 is the standalone PS4 package release. It includes the add-on
 importer, local add-on registration, the split-screen pad fix, and the local
 add-on date repair.
 
+## Changes from v0.10.0
+
+v0.10.0 is withdrawn and is not a usable upgrade source. v0.11.0 replaces its
+developer-data package with a standalone package and adds the add-on and
+split-screen work.
+
+### Standalone package and startup
+
+- Switched the public build to `PS4_EXTERNAL_DATA=OFF`: the executable, STK
+  code data, and the full STK 1.5 asset tree are under `/app0/data`.
+- Included all 44 tracks and 18 karts from STK 1.5.
+- Included `sce_sys/about/right.sprx`, which v0.10.0 omitted.
+- Removed the `/data/stk/data`, FTP upload, and developer-eboot requirement.
+  Install the `.pkg` and launch it from the home screen.
+- Added packaging guards for the data mode, missing `tracks/`, and missing
+  assets, plus a space-free build-directory fallback. The content-ID and
+  friendly package names are hard links to the same file.
+- Kept saves, profiles, settings, installed add-ons, and the shader cache in
+  `/data/stk`.
+
+### Add-ons
+
+- Added the startup importer for internal storage and USB.
+- Supports `.zip` archives and unpacked folders, add-on collections, and nested
+  add-on ZIPs.
+- Handles karts, race tracks, battle/CTF arenas, and soccer fields. Arenas and
+  soccer fields are tracks internally and install under `tracks/`.
+- Supports root-XML ZIPs by using the archive base name as the install folder.
+- Stages and publishes without exposing a partial install, refuses symbolic
+  links, and restores the previous install if the final rename fails.
+- Records each source path and a size/modification-time stamp in
+  `/data/stk/mods/.ps4-imported`, so unchanged sources are skipped.
+- Registers locally imported karts, tracks, and arenas in
+  `addons_installed.xml` so they appear on the Add-ons screen.
+- Repairs missing or zero local add-on dates from the installed folder's
+  modification time instead of showing 01/01/1970.
+
+### Split-screen and input
+
+- Opens one ScePad per signed-in user and exposes each pad as a real STK
+  gamepad. This fixes the phantom player-2 slot that blocked the second pad.
+- Tested two-player split-screen with two signed-in users and two DualShock 4
+  controllers.
+- Added DS4 prompt glyphs and the Mario Kart 8 Deluxe-style controller layout.
+- The input layer has four pad slots; three- and four-player split-screen were
+  not tested.
+- Suppresses the first-frame Cross press on the race screen and releases a pad
+  when its user signs out.
+
+### Text, IME, and UI
+
+- The PS4 system keyboard opens from text fields, starts with the field's
+  current text, and replaces it on accept.
+- Password fields use a bullet mask instead of exposing the entered text.
+- Updated the input settings, press-a-key dialog, and PS4 text handling in the
+  registration and lobby screens. Online multiplayer remains untested.
+
+### Audio and runtime
+
+- Reworked music playback to address slowdown and crackling. Audio was
+  verified only on the tested output path.
+- Uses the RADV shader and pipeline cache under `/data/stk/cache` instead of
+  recompiling shaders on every launch.
+- Added PS4 tracing and watchdog logging, pthread/semaphore glue, and disabled
+  Discord rich presence.
+
+### Documentation
+
+- Replaced the public README with the detailed tested matrix, install and
+  add-on paths, build instructions, data layout, and caveats.
+- Added these v0.11.0 release notes and updated the port documentation.
+
 ## Download
 
 ```text
@@ -50,7 +122,7 @@ FTP upload or development data tree is needed.
 - Audio output.
 - In-game **Add-ons** catalogue: Among Us downloaded, installed, loaded and
   raced.
-- Manual add-on import: `mariokart_06315.zip` imported, appeared under
+- Manual add-on import: `example_kart.zip` imported, appeared under
   **Installed mods**, and raced.
 - Saves, profiles and settings persisted in `/data/stk` across reinstalling
   the application.
@@ -141,7 +213,7 @@ Limits:
 - The game and every track/kart combination were not exhaustively tested.
 - Track/arena/soccer-field import has no separate hardware test yet.
 - The local date display fix was not independently re-checked on screen.
-- Add-on content can have its own missing assets. The tested Mario mod logs
+- Add-on content can have its own missing assets. The tested kart mod logs
   missing `genericshadow.png` and `kart_exhaust.xml` references; it still loads
   and races.
 - The final close/shutdown path does not yet have a dedicated repeat test.
